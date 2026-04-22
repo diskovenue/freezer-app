@@ -1,0 +1,24 @@
+# Backend Overview (Supabase self-hosted)
+
+## Domains
+- API Gateway: https://api.freezer.andreasgoessl.de
+- Studio: https://studio.freezer.andreasgoessl.de
+
+## Storage
+- Bucket: photos (private)
+
+## Key Tables
+- categories (emoji, freezer_months)
+- locations
+- products (EAN)
+- freezer_units
+- device_tokens
+- notifications_sent
+
+## View
+- v_units_display (due_date/days_left/display_name/category fallback)
+
+## Attention / Fällig
+- daily job at 10:00:
+  - sets/clears attention_reason based on due_date (mhd_2/mhd_7)
+  - sends summary push to all device tokens (APNs)
