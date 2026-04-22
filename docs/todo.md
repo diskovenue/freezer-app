@@ -94,4 +94,4 @@ Benötigt:
 
 ## Open Questions
 - [ ] Wollen wir pro Kategorie emoji + freezer_months in der Settings-UI editierbar machen (ja/nein)?
-- [ ] Wollen wir zusätzlich einen "Snooze" pro Unit (
+- [ ] Wollen wir zusätzlich einen "Snooze" pro Unit (z.B. 7 Tage) oder reicht attention bis consumed?
