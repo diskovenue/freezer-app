@@ -9,13 +9,15 @@ import Foundation
 struct UnitDisplayRow: Decodable, Identifiable {
     let id: UUID
 
+    let product_ean: String?      // <-- neu/ wichtig für Gruppierung
+
     let display_name: String?
     let category_name: String?
     let category_emoji: String?
 
     let location_name: String?
 
-    let due_date: String?      // ISO date "YYYY-MM-DD"
+    let due_date: String?
     let days_left: Int?
 
     let attention_reason: String?

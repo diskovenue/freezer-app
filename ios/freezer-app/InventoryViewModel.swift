@@ -27,4 +27,17 @@ final class InventoryViewModel: ObservableObject {
             errorMessage = error.localizedDescription
         }
     }
+    
+    func consume(id: UUID) async {
+        isLoading = true
+        errorMessage = nil
+        defer { isLoading = false }
+
+        do {
+            try await repo.consumeUnit(id: id)
+            items = try await repo.fetchUnitsDisplay()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
 }

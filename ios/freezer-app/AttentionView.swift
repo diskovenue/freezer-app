@@ -20,7 +20,7 @@ struct AttentionView: View {
                 }
 
                 if !mhd2.isEmpty {
-                    Section("≤ 2 Tage") {
+                    Section("max. 2 Tage") {
                         ForEach(mhd2) { item in
                             InventoryRow(item: item)
                         }
@@ -28,7 +28,7 @@ struct AttentionView: View {
                 }
 
                 if !mhd7.isEmpty {
-                    Section("≤ 7 Tage") {
+                    Section("max. 7 Tage") {
                         ForEach(mhd7) { item in
                             InventoryRow(item: item)
                         }
