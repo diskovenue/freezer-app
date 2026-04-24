@@ -1,0 +1,11 @@
+# Secrets
+Secrets.plist
+
+# Xcode
+.DS_Store
+DerivedData/
+*.xcuserdata/
+*.xcuserstate
+
+# SwiftPM
+.build/
