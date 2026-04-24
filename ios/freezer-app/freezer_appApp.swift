@@ -8,16 +8,16 @@
 import SwiftUI
 
 @main
-struct FreezerApp: App {
+struct freezer_appApp: App {
     @StateObject private var auth = AuthViewModel()
+    @StateObject private var settings = AppSettings()
 
     var body: some Scene {
         WindowGroup {
             RootView()
                 .environmentObject(auth)
-                .task {
-                    await auth.loadSession()
-                }
+                .environmentObject(settings)
+                .preferredColorScheme(settings.appearance.colorScheme)
         }
     }
 }
@@ -26,11 +26,15 @@ struct RootView: View {
     @EnvironmentObject var auth: AuthViewModel
 
     var body: some View {
-        if auth.session == nil {
-            LoginView()
-        } else {
-            // Platzhalter – hier kommen später Tabs rein
-            Text("Eingeloggt!")
+        Group {
+            if auth.session == nil {
+                LoginView()
+            } else {
+                MainTabView()
+            }
+        }
+        .task {
+            await auth.loadSession()
         }
     }
 }
