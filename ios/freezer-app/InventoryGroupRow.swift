@@ -35,7 +35,9 @@ struct InventoryGroupRow: View {
                 DaysLeftBadge(daysLeft: days)
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, 4)
+        .contentShape(Rectangle())
     }
 
     // MARK: - Subline (Ort + • + Einlagedatum)
@@ -103,7 +105,7 @@ private struct DaysLeftBadge: View {
     }
 
     private var label: String {
-        if daysLeft < 0 { return "drüber \(abs(daysLeft))T" }
+        if daysLeft < 0 { return "+ \(abs(daysLeft)) Tage" }
         if daysLeft == 0 { return "heute" }
         if daysLeft == 1 { return "1 Tag" }
         return "\(daysLeft) Tage"

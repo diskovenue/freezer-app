@@ -53,18 +53,20 @@ struct InventoryGroupDetailView: View {
                 }
             }
             .task { await vm.load() }
-            .refreshable { await vm.load() }
             .overlay(alignment: .bottom) {
                 if let undo = vm.undoItem {
                     UndoBanner(
                         title: "\(undo.title) entnommen",
-                        duration: 10,
+                        duration: 5,
                         onUndo: { Task { await vm.undoLastConsume() } },
                         onDismiss: { vm.undoItem = nil }
                     )
                     .transition(.move(edge: .bottom).combined(with: .opacity))
                     .animation(.easeInOut(duration: 0.2), value: vm.undoItem?.id)
                 }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .inventoryDataDidChange)) { _ in
+                Task { await vm.load() }
             }
         }
         .sheet(item: $selectedUnit) { sel in

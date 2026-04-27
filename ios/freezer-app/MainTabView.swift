@@ -11,13 +11,13 @@ struct MainTabView: View {
     var body: some View {
         TabView {
             InventoryView()
-                .tabItem { Label("Bestand", systemImage: "tray.full") }
+                .tabItem { Label("Bestand", systemImage: "refrigerator.fill") }
 
             ScanView()
                 .tabItem { Label("Scan", systemImage: "barcode.viewfinder") }
 
             AttentionView()
-                .tabItem { Label("Fällig", systemImage: "exclamationmark.triangle") }
+                .tabItem { Label("Fällig", systemImage: "clock.badge.exclamationmark.fill") }
 
             SettingsView()
                 .tabItem { Label("Einstellungen", systemImage: "gearshape") }

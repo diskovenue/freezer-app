@@ -7,6 +7,7 @@
 
 import Foundation
 import Combine
+import SwiftUI
 
 @MainActor
 final class InventoryViewModel: ObservableObject {
@@ -43,17 +44,21 @@ final class InventoryViewModel: ObservableObject {
 
         do {
             try await repo.consumeUnit(id: id)
-            // Undo-Info setzen
-            undoItem = UndoItem(id: id, title: title ?? "Entnommen")
-            // Liste neu laden
-            items = try await repo.fetchUnitsDisplay()
+            let updatedItems = try await repo.fetchUnitsDisplay()
+
+            withAnimation(.snappy(duration: 0.28, extraBounce: 0)) {
+                undoItem = UndoItem(id: id, title: title ?? "Entnommen")
+                items = updatedItems
+            }
 
             // Banner nach ein paar Sekunden automatisch ausblenden
             let current = undoItem?.id
             Task {
-                try? await Task.sleep(nanoseconds: 10_000_000_000)
+                try? await Task.sleep(nanoseconds: 5_000_000_000)
                 if self.undoItem?.id == current {
-                    self.undoItem = nil
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        self.undoItem = nil
+                    }
                 }
             }
         } catch {
@@ -69,8 +74,12 @@ final class InventoryViewModel: ObservableObject {
 
         do {
             try await repo.restoreUnit(id: undo.id)
-            undoItem = nil
-            items = try await repo.fetchUnitsDisplay()
+            let updatedItems = try await repo.fetchUnitsDisplay()
+
+            withAnimation(.snappy(duration: 0.28, extraBounce: 0)) {
+                undoItem = nil
+                items = updatedItems
+            }
         } catch {
             errorMessage = error.localizedDescription
         }

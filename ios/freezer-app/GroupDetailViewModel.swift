@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import SwiftUI
 
 @MainActor
 final class GroupDetailViewModel: ObservableObject {
@@ -43,14 +44,20 @@ final class GroupDetailViewModel: ObservableObject {
 
         do {
             try await repo.consumeUnit(id: id)
-            undoItem = UndoItem(id: id, title: title ?? "Entnommen")
-            items = try await repo.fetchUnitsByEAN(ean)
+            let updatedItems = try await repo.fetchUnitsByEAN(ean)
+
+            withAnimation(.snappy(duration: 0.28, extraBounce: 0)) {
+                undoItem = UndoItem(id: id, title: title ?? "Entnommen")
+                items = updatedItems
+            }
 
             let current = undoItem?.id
             Task {
                 try? await Task.sleep(nanoseconds: 5_000_000_000)
                 if self.undoItem?.id == current {
-                    self.undoItem = nil
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        self.undoItem = nil
+                    }
                 }
             }
         } catch {
@@ -66,8 +73,12 @@ final class GroupDetailViewModel: ObservableObject {
 
         do {
             try await repo.restoreUnit(id: undo.id)
-            undoItem = nil
-            items = try await repo.fetchUnitsByEAN(ean)
+            let updatedItems = try await repo.fetchUnitsByEAN(ean)
+
+            withAnimation(.snappy(duration: 0.28, extraBounce: 0)) {
+                undoItem = nil
+                items = updatedItems
+            }
         } catch {
             errorMessage = error.localizedDescription
         }

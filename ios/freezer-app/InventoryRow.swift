@@ -48,7 +48,9 @@ struct InventoryRow: View {
                 badge(daysLeft: days, attention: item.attention_reason)
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, 4)
+        .contentShape(Rectangle())
     }
 
     @ViewBuilder

@@ -14,6 +14,7 @@ struct UnitDisplayRow: Decodable, Identifiable {
     let display_name: String?
     let category_name: String?
     let category_emoji: String?
+    let category_sort_order: Int?
 
     let location_name: String?
 

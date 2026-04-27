@@ -8,11 +8,19 @@
 import SwiftUI
 
 struct InventoryView: View {
+    private static let allCategoriesChipID = "__all_categories__"
+
     @StateObject private var vm = InventoryViewModel()
     @State private var searchText = ""
+    @State private var chipScrollOffset: CGFloat = 0
+    @State private var chipTrailingOverflow: CGFloat = 0
+    @State private var selectedChipScrollID: String? = allCategoriesChipID
 
     @State private var selectedGroup: InventoryGroup?
     @State private var selectedUnit: SelectedUnit?
+
+    // nil = Alle Kategorien
+    @State private var selectedCategoryKey: String? = nil
 
     var body: some View {
         NavigationStack {
@@ -42,22 +50,24 @@ struct InventoryView: View {
             .navigationTitle("Bestand")
             .task { await vm.load() }
             .refreshable { await vm.load() }
+            .onReceive(NotificationCenter.default.publisher(for: .inventoryDataDidChange)) { _ in
+                Task { await vm.load() }
+            }
         }
         // Group sheet
         .sheet(item: $selectedGroup) { group in
             InventoryGroupDetailView(ean: groupEAN(group), title: group.title)
         }
-        
         // Unit detail sheet
         .sheet(item: $selectedUnit) { sel in
             UnitDetailView(unitId: sel.id, displayName: sel.title)
         }
-        
+        // Undo banner
         .overlay(alignment: .bottom) {
             if let undo = vm.undoItem {
                 UndoBanner(
                     title: "\(undo.title) entnommen",
-                    duration: 10,
+                    duration: 5,
                     onUndo: { Task { await vm.undoLastConsume() } },
                     onDismiss: { vm.undoItem = nil }
                 )
@@ -67,8 +77,13 @@ struct InventoryView: View {
         }
     }
 
+    // MARK: - List
+
     private var listContent: some View {
         List {
+            // Chips als LIST-HEADER (scrollt normal mit, refresh bleibt korrekt)
+            chipsHeaderRow
+
             if groupedSections.isEmpty {
                 ContentUnavailableView(
                     "Keine Treffer",
@@ -76,6 +91,7 @@ struct InventoryView: View {
                     description: Text("Für „\(searchText)“ wurde nichts gefunden.")
                 )
                 .listRowBackground(Color.clear)
+
             } else {
                 ForEach(groupedSections, id: \.key) { section in
                     Section {
@@ -104,6 +120,7 @@ struct InventoryView: View {
                             }
                         }
                     } header: {
+                        // Sticky Section-Header bleibt in List/Section automatisch
                         HStack(spacing: 8) {
                             Text(section.key)
                             Spacer()
@@ -123,9 +140,106 @@ struct InventoryView: View {
             prompt: "Suchen"
         )
         .scrollDismissesKeyboard(.immediately)
+        .animation(.snappy(duration: 0.28, extraBounce: 0), value: selectedCategoryKey)
+    }
+
+    // MARK: - Chips header row
+
+    @ViewBuilder
+    private var chipsHeaderRow: some View {
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 10) {
+                    CategoryChip(
+                        title: "Alle",
+                        count: totalUnitCountAllCategories,
+                        isSelected: selectedCategoryKey == nil
+                    ) {
+                        selectedCategoryKey = nil
+                        selectedChipScrollID = Self.allCategoriesChipID
+                    }
+                    .id(Self.allCategoriesChipID)
+
+                    ForEach(categoryChipDataAllCategories, id: \.key) { entry in
+                        CategoryChip(
+                            title: entry.key,
+                            count: entry.count,
+                            isSelected: selectedCategoryKey == entry.key
+                        ) {
+                            selectedCategoryKey = entry.key
+                            selectedChipScrollID = chipScrollID(for: entry.key)
+                        }
+                        .id(chipScrollID(for: entry.key))
+                    }
+                }
+                .padding(.vertical, 6)
+            }
+            .onScrollGeometryChange(for: ChipScrollMetrics.self) { geometry in
+                ChipScrollMetrics(
+                    offsetX: geometry.contentOffset.x,
+                    trailingOverflow: geometry.contentSize.width - geometry.containerSize.width - geometry.contentOffset.x
+                )
+            } action: { _, newValue in
+                chipScrollOffset = newValue.offsetX
+                chipTrailingOverflow = newValue.trailingOverflow
+            }
+            .onChange(of: selectedChipScrollID) { _, newValue in
+                guard let newValue else { return }
+                withAnimation(.snappy(duration: 0.28, extraBounce: 0)) {
+                    proxy.scrollTo(newValue, anchor: .center)
+                }
+            }
+        }
+        .mask {
+            HStack(spacing: 0) {
+                edgeMask(direction: .leading, isEnabled: chipScrollOffset > 1)
+                Rectangle().fill(Color.black)
+                edgeMask(direction: .trailing, isEnabled: chipTrailingOverflow > 1)
+            }
+        }
+        .listRowInsets(EdgeInsets(top: 6, leading: 0, bottom: 6, trailing: 0))
+        .listRowBackground(Color.clear)
+    }
+
+    private enum FadeDirection {
+        case leading
+        case trailing
+    }
+
+    private struct ChipScrollMetrics: Equatable {
+        let offsetX: CGFloat
+        let trailingOverflow: CGFloat
+    }
+
+    private func chipScrollID(for key: String) -> String {
+        "chip-\(key)"
+    }
+
+    @ViewBuilder
+    private func edgeMask(direction: FadeDirection, isEnabled: Bool) -> some View {
+        Group {
+            if isEnabled {
+                LinearGradient(
+                    colors: direction == .leading
+                        ? [Color.clear, Color.black]
+                        : [Color.black, Color.clear],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
+            } else {
+                Color.black
+            }
+        }
+        .frame(width: 20)
+    }
+
+    private struct ChipEntry {
+        let key: String
+        let count: Int
     }
 
     // MARK: - Search filter
+
     private var filteredItems: [UnitDisplayRow] {
         let q = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !q.isEmpty else { return vm.items }
@@ -138,8 +252,9 @@ struct InventoryView: View {
         }
     }
 
-    // MARK: - Grouping (EAN grouped, non-EAN stays 1:1)
-    private var groups: [InventoryGroup] {
+    // MARK: - Base grouping (nur Suche wirkt)
+
+    private var baseGroups: [InventoryGroup] {
         let dict = Dictionary(grouping: filteredItems) { item in
             if let ean = item.product_ean, !ean.isEmpty {
                 return "EAN:\(ean)"
@@ -155,10 +270,7 @@ struct InventoryView: View {
             let categoryKey = "\(emoji) \(catName)"
 
             let minDays: Int? = values.compactMap(\.days_left).min()
-            let minFrozenISO: String? = values
-                .compactMap(\.frozen_at)
-                .filter { !$0.isEmpty }
-                .min()
+            let minFrozenISO: String? = values.compactMap(\.frozen_at).filter { !$0.isEmpty }.min()
 
             let sortedItems = values.sorted { ($0.days_left ?? 999_999) < ($1.days_left ?? 999_999) }
 
@@ -168,6 +280,7 @@ struct InventoryView: View {
                 categoryKey: categoryKey,
                 categoryName: first.category_name,
                 categoryEmoji: first.category_emoji,
+                categorySortOrder: first.category_sort_order,
                 locationName: first.location_name,
                 minDaysLeft: minDays,
                 minFrozenAtISO: minFrozenISO,
@@ -179,25 +292,63 @@ struct InventoryView: View {
         return mapped.sorted { ($0.minDaysLeft ?? 999_999) < ($1.minDaysLeft ?? 999_999) }
     }
 
+    // MARK: - Chip data (immer alle sichtbar)
+
+    private var totalUnitCountAllCategories: Int {
+        baseGroups.reduce(0) { $0 + $1.count }
+    }
+
+    private var categoryChipDataAllCategories: [ChipEntry] {
+        let dict = Dictionary(grouping: baseGroups) { $0.categoryKey }
+        return orderedCategoryKeys(in: baseGroups).compactMap { key in
+            guard let value = dict[key] else { return nil }
+            return ChipEntry(key: key, count: value.reduce(0) { $0 + $1.count })
+        }
+    }
+
+    // MARK: - Kategorie-Filter nach dem Gruppieren
+
+    private var filteredGroupsByCategory: [InventoryGroup] {
+        guard let selected = selectedCategoryKey else { return baseGroups }
+        return baseGroups.filter { $0.categoryKey == selected }
+    }
+
     private var groupedSections: [(key: String, value: [InventoryGroup])] {
-        let dict = Dictionary(grouping: groups) { $0.categoryKey }
-        return dict.keys.sorted().map { key in
+        let dict = Dictionary(grouping: filteredGroupsByCategory) { $0.categoryKey }
+        return orderedCategoryKeys(in: filteredGroupsByCategory).map { key in
             let values = (dict[key] ?? []).sorted { ($0.minDaysLeft ?? 999_999) < ($1.minDaysLeft ?? 999_999) }
             return (key: key, value: values)
         }
     }
 
+    // MARK: - Helpers
+
     private struct SelectedUnit: Identifiable {
         let id: UUID
         let title: String?
     }
-    
+
     private func groupEAN(_ group: InventoryGroup) -> String {
-        // group.id ist "EAN:4000..." oder "UNIT:..."
         if group.id.hasPrefix("EAN:") {
             return String(group.id.dropFirst(4))
         }
-        // sollte für Group-Sheet nie passieren, weil wir es nur bei count>1 öffnen
         return ""
+    }
+
+    private func orderedCategoryKeys(in groups: [InventoryGroup]) -> [String] {
+        let groupedByCategory = Dictionary(grouping: groups) { $0.categoryKey }
+
+        return groupedByCategory.keys.sorted { lhs, rhs in
+            let lhsSortOrder = groupedByCategory[lhs]?.compactMap(\.categorySortOrder).min() ?? .max
+            let rhsSortOrder = groupedByCategory[rhs]?.compactMap(\.categorySortOrder).min() ?? .max
+
+            if lhsSortOrder != rhsSortOrder {
+                return lhsSortOrder < rhsSortOrder
+            }
+
+            let lhsIndex = groups.firstIndex { $0.categoryKey == lhs } ?? .max
+            let rhsIndex = groups.firstIndex { $0.categoryKey == rhs } ?? .max
+            return lhsIndex < rhsIndex
+        }
     }
 }

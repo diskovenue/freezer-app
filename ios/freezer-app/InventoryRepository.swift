@@ -21,6 +21,7 @@ struct InventoryRepository {
                 display_name,
                 category_name,
                 category_emoji,
+                category_sort_order,
                 location_name,
                 frozen_at,
                 due_date,
@@ -46,6 +47,7 @@ struct InventoryRepository {
                 display_name,
                 category_name,
                 category_emoji,
+                category_sort_order,
                 location_name,
                 frozen_at,
                 due_date,
@@ -129,6 +131,38 @@ struct InventoryRepository {
                 domain: "UnitDetail",
                 code: 404,
                 userInfo: [NSLocalizedDescriptionKey: "Eintrag nicht gefunden"]
+            )
+        }
+        return first
+    }
+
+    func fetchUnitDisplay(id: UUID) async throws -> UnitDisplayRow {
+        let rows: [UnitDisplayRow] = try await client
+            .from("v_units_display")
+            .select("""
+                id,
+                product_ean,
+                display_name,
+                category_name,
+                category_emoji,
+                category_sort_order,
+                location_name,
+                frozen_at,
+                due_date,
+                days_left,
+                attention_reason,
+                status
+            """)
+            .eq("id", value: id.uuidString)
+            .limit(1)
+            .execute()
+            .value
+
+        guard let first = rows.first else {
+            throw NSError(
+                domain: "UnitDetailDisplay",
+                code: 404,
+                userInfo: [NSLocalizedDescriptionKey: "Anzeigeeintrag nicht gefunden"]
             )
         }
         return first

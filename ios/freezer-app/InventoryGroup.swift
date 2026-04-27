@@ -13,6 +13,7 @@ struct InventoryGroup: Identifiable {
     let categoryKey: String
     let categoryName: String?
     let categoryEmoji: String?
+    let categorySortOrder: Int?
     let locationName: String?
 
     let minDaysLeft: Int?

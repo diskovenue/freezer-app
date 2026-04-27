@@ -16,53 +16,69 @@ struct UndoBanner: View {
 
     @State private var startDate = Date()
     @State private var now = Date()
+    @State private var isVisible = true
+
     private let timer = Timer.publish(every: 0.05, on: .main, in: .common).autoconnect()
 
     var body: some View {
-        VStack(spacing: 10) {
-            HStack(spacing: 12) {
-                Image(systemName: "checkmark.circle.fill")
-                    .foregroundStyle(.green)
+        Group {
+            if isVisible {
+                VStack(spacing: 10) {
+                    HStack(spacing: 12) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
 
-                Text(title)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
+                        Text(title)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.primary)
+                            .lineLimit(1)
 
-                Spacer()
+                        Spacer()
 
-                Button("Rückgängig") { onUndo() }
-                    .font(.subheadline.weight(.semibold))
+                        Button("Rückgängig") {
+                            dismissInstant {
+                                onUndo()
+                            }
+                        }
+                        .font(.subheadline.weight(.semibold))
 
-                Button {
-                    onDismiss()
-                } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 12, weight: .semibold))
+                        Button {
+                            dismissInstant {
+                                onDismiss()
+                            }
+                        } label: {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 12, weight: .semibold))
+                        }
+                        .foregroundStyle(.secondary)
+                    }
+
+                    progressBar
                 }
-                .foregroundStyle(.secondary)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
+                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
+                )
+                .shadow(color: Color.black.opacity(0.12), radius: 18, x: 0, y: 8)
+                .padding(.horizontal, 16)
+                .padding(.bottom, 12)
+                .onAppear {
+                    startDate = Date()
+                    now = startDate
+                }
+                .onReceive(timer) { value in
+                    // Timer nur laufen lassen solange sichtbar
+                    guard isVisible else { return }
+                    now = value
+                }
             }
-
-            progressBar
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
-        )
-        .shadow(color: Color.black.opacity(0.12), radius: 18, x: 0, y: 8)
-        .padding(.horizontal, 16)
-        .padding(.bottom, 12)
-        .onAppear {
-            startDate = Date()
-            now = startDate
-        }
-        .onReceive(timer) { value in
-            now = value
         }
     }
+
+    // MARK: - Progress
 
     private var progress: CGFloat {
         let elapsed = now.timeIntervalSince(startDate)
@@ -83,5 +99,18 @@ struct UndoBanner: View {
         }
         .frame(height: 3)
         .accessibilityLabel("Undo Countdown")
+    }
+
+    // MARK: - Instant dismiss helper
+
+    private func dismissInstant(then action: @escaping () -> Void) {
+        // 1) Banner sofort weg-animieren
+        withAnimation(.easeInOut(duration: 0.15)) {
+            isVisible = false
+        }
+        // 2) Kurz warten, dann State im Parent updaten (undoItem = nil)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+            action()
+        }
     }
 }
