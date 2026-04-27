@@ -8,24 +8,72 @@
 import SwiftUI
 
 struct InventoryGroupDetailView: View {
-    let group: InventoryGroup
-    @ObservedObject var vm: InventoryViewModel
+    let ean: String
+    let title: String
+
+    @Environment(\.dismiss) private var dismiss
+    @StateObject private var vm: GroupDetailViewModel
+    @State private var selectedUnit: SelectedUnit?
+
+    init(ean: String, title: String) {
+        self.ean = ean
+        self.title = title
+        _vm = StateObject(wrappedValue: GroupDetailViewModel(ean: ean, title: title))
+    }
 
     var body: some View {
-        List {
-            ForEach(group.items) { item in
-                InventoryRow(item: item)
+        NavigationStack {
+            List {
+                if let msg = vm.errorMessage {
+                    Section { Text(msg).foregroundStyle(.red) }
+                }
+
+                ForEach(vm.items) { item in
+                    Button {
+                        selectedUnit = SelectedUnit(id: item.id, title: item.display_name)
+                    } label: {
+                        InventoryRow(item: item)
+                    }
+                    .buttonStyle(.plain)
                     .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                         Button {
-                            Task { await vm.consume(id: item.id) }
+                            Task { await vm.consume(id: item.id, title: item.display_name) }
                         } label: {
                             Label("Entnehmen", systemImage: "checkmark")
                         }
                         .tint(.green)
                     }
+                }
+            }
+            .navigationTitle(title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Fertig") { dismiss() }
+                }
+            }
+            .task { await vm.load() }
+            .refreshable { await vm.load() }
+            .overlay(alignment: .bottom) {
+                if let undo = vm.undoItem {
+                    UndoBanner(
+                        title: "\(undo.title) entnommen",
+                        duration: 10,
+                        onUndo: { Task { await vm.undoLastConsume() } },
+                        onDismiss: { vm.undoItem = nil }
+                    )
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .animation(.easeInOut(duration: 0.2), value: vm.undoItem?.id)
+                }
             }
         }
-        .navigationTitle(group.title)
-        .navigationBarTitleDisplayMode(.inline)
+        .sheet(item: $selectedUnit) { sel in
+            UnitDetailView(unitId: sel.id, displayName: sel.title)
+        }
+    }
+
+    private struct SelectedUnit: Identifiable {
+        let id: UUID
+        let title: String?
     }
 }

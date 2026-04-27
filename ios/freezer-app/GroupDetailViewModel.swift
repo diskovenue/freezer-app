@@ -1,27 +1,27 @@
-//
-//  InventoryViewModel.swift
-//  freezer-app
-//
-//  Created by Andreas Gößl on 24.04.26.
-//
-
 import Foundation
 import Combine
 
 @MainActor
-final class InventoryViewModel: ObservableObject {
+final class GroupDetailViewModel: ObservableObject {
     @Published var items: [UnitDisplayRow] = []
     @Published var isLoading = false
     @Published var errorMessage: String?
 
-    // Undo banner state
+    // Undo banner state (lokal im Sheet)
     @Published var undoItem: UndoItem?
-
-    private let repo = InventoryRepository()
 
     struct UndoItem: Identifiable {
         let id: UUID
         let title: String
+    }
+
+    private let repo = InventoryRepository()
+    private let ean: String
+    let title: String
+
+    init(ean: String, title: String) {
+        self.ean = ean
+        self.title = title
     }
 
     func load() async {
@@ -30,7 +30,7 @@ final class InventoryViewModel: ObservableObject {
         defer { isLoading = false }
 
         do {
-            items = try await repo.fetchUnitsDisplay()
+            items = try await repo.fetchUnitsByEAN(ean)
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -43,15 +43,12 @@ final class InventoryViewModel: ObservableObject {
 
         do {
             try await repo.consumeUnit(id: id)
-            // Undo-Info setzen
             undoItem = UndoItem(id: id, title: title ?? "Entnommen")
-            // Liste neu laden
-            items = try await repo.fetchUnitsDisplay()
+            items = try await repo.fetchUnitsByEAN(ean)
 
-            // Banner nach ein paar Sekunden automatisch ausblenden
             let current = undoItem?.id
             Task {
-                try? await Task.sleep(nanoseconds: 10_000_000_000)
+                try? await Task.sleep(nanoseconds: 5_000_000_000)
                 if self.undoItem?.id == current {
                     self.undoItem = nil
                 }
@@ -70,7 +67,7 @@ final class InventoryViewModel: ObservableObject {
         do {
             try await repo.restoreUnit(id: undo.id)
             undoItem = nil
-            items = try await repo.fetchUnitsDisplay()
+            items = try await repo.fetchUnitsByEAN(ean)
         } catch {
             errorMessage = error.localizedDescription
         }

@@ -19,6 +19,7 @@ struct UnitDisplayRow: Decodable, Identifiable {
 
     let due_date: String?
     let days_left: Int?
+    let frozen_at: String?
 
     let attention_reason: String?
     let status: String?

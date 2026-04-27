@@ -11,6 +11,9 @@ struct InventoryView: View {
     @StateObject private var vm = InventoryViewModel()
     @State private var searchText = ""
 
+    @State private var selectedGroup: InventoryGroup?
+    @State private var selectedUnit: SelectedUnit?
+
     var body: some View {
         NavigationStack {
             Group {
@@ -40,9 +43,29 @@ struct InventoryView: View {
             .task { await vm.load() }
             .refreshable { await vm.load() }
         }
+        // Group sheet
+        .sheet(item: $selectedGroup) { group in
+            InventoryGroupDetailView(ean: groupEAN(group), title: group.title)
+        }
+        
+        // Unit detail sheet
+        .sheet(item: $selectedUnit) { sel in
+            UnitDetailView(unitId: sel.id, displayName: sel.title)
+        }
+        
+        .overlay(alignment: .bottom) {
+            if let undo = vm.undoItem {
+                UndoBanner(
+                    title: "\(undo.title) entnommen",
+                    duration: 10,
+                    onUndo: { Task { await vm.undoLastConsume() } },
+                    onDismiss: { vm.undoItem = nil }
+                )
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .animation(.easeInOut(duration: 0.2), value: vm.undoItem?.id)
+            }
+        }
     }
-
-    // MARK: - List
 
     private var listContent: some View {
         List {
@@ -53,27 +76,37 @@ struct InventoryView: View {
                     description: Text("Für „\(searchText)“ wurde nichts gefunden.")
                 )
                 .listRowBackground(Color.clear)
-
             } else {
                 ForEach(groupedSections, id: \.key) { section in
                     Section {
                         ForEach(section.value) { group in
-                            if group.count > 1 {
-                                NavigationLink {
-                                    InventoryGroupDetailView(group: group, vm: vm)
-                                } label: {
-                                    InventoryGroupRow(group: group)
+                            Button {
+                                if group.count > 1, group.id.hasPrefix("EAN:") {
+                                    selectedGroup = group
+                                } else if let first = group.items.first {
+                                    selectedUnit = SelectedUnit(id: first.id, title: group.title)
                                 }
-                            } else {
+                            } label: {
                                 InventoryGroupRow(group: group)
-                                // später: Single-Detail-View
+                            }
+                            .buttonStyle(.plain)
+                            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                                Button {
+                                    Task {
+                                        if let first = group.items.first {
+                                            await vm.consume(id: first.id, title: group.title)
+                                        }
+                                    }
+                                } label: {
+                                    Label("Entnehmen", systemImage: "checkmark")
+                                }
+                                .tint(.green)
                             }
                         }
                     } header: {
                         HStack(spacing: 8) {
                             Text(section.key)
                             Spacer()
-                            // Anzahl Einheiten (nicht Anzahl Gruppen)
                             Text("\(section.value.reduce(0) { $0 + $1.count })")
                                 .font(.footnote.weight(.semibold))
                                 .foregroundStyle(.secondary)
@@ -92,13 +125,9 @@ struct InventoryView: View {
         .scrollDismissesKeyboard(.immediately)
     }
 
-    // MARK: - Search filter (applies BEFORE grouping)
-
+    // MARK: - Search filter
     private var filteredItems: [UnitDisplayRow] {
-        let q = searchText
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-
+        let q = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !q.isEmpty else { return vm.items }
 
         return vm.items.filter { item in
@@ -110,9 +139,7 @@ struct InventoryView: View {
     }
 
     // MARK: - Grouping (EAN grouped, non-EAN stays 1:1)
-
     private var groups: [InventoryGroup] {
-        // Gruppierung: EAN zusammen, alles ohne EAN einzeln
         let dict = Dictionary(grouping: filteredItems) { item in
             if let ean = item.product_ean, !ean.isEmpty {
                 return "EAN:\(ean)"
@@ -127,17 +154,12 @@ struct InventoryView: View {
             let catName = first.category_name ?? "Sonstiges"
             let categoryKey = "\(emoji) \(catName)"
 
-            // 1) dringendstes days_left innerhalb der Gruppe
             let minDays: Int? = values.compactMap(\.days_left).min()
-
-            // 2) frühestes due_date innerhalb der Gruppe
-            // due_date ist ISO "yyyy-MM-dd" -> lexikografisch min() entspricht frühestem Datum
-            let minDueISO: String? = values
-                .compactMap(\.due_date)
+            let minFrozenISO: String? = values
+                .compactMap(\.frozen_at)
                 .filter { !$0.isEmpty }
                 .min()
 
-            // sortiere Einheiten in der Gruppe (damit Detailview ordentlich ist)
             let sortedItems = values.sorted { ($0.days_left ?? 999_999) < ($1.days_left ?? 999_999) }
 
             return InventoryGroup(
@@ -148,24 +170,34 @@ struct InventoryView: View {
                 categoryEmoji: first.category_emoji,
                 locationName: first.location_name,
                 minDaysLeft: minDays,
-                minDueDateISO: minDueISO,
+                minFrozenAtISO: minFrozenISO,
                 count: values.count,
                 items: sortedItems
             )
         }
 
-        // Gruppen insgesamt nach Dringlichkeit sortieren
         return mapped.sorted { ($0.minDaysLeft ?? 999_999) < ($1.minDaysLeft ?? 999_999) }
     }
 
-    // MARK: - Sections by category
-
     private var groupedSections: [(key: String, value: [InventoryGroup])] {
         let dict = Dictionary(grouping: groups) { $0.categoryKey }
-
         return dict.keys.sorted().map { key in
             let values = (dict[key] ?? []).sorted { ($0.minDaysLeft ?? 999_999) < ($1.minDaysLeft ?? 999_999) }
             return (key: key, value: values)
         }
+    }
+
+    private struct SelectedUnit: Identifiable {
+        let id: UUID
+        let title: String?
+    }
+    
+    private func groupEAN(_ group: InventoryGroup) -> String {
+        // group.id ist "EAN:4000..." oder "UNIT:..."
+        if group.id.hasPrefix("EAN:") {
+            return String(group.id.dropFirst(4))
+        }
+        // sollte für Group-Sheet nie passieren, weil wir es nur bei count>1 öffnen
+        return ""
     }
 }

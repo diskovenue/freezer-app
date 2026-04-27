@@ -16,13 +16,13 @@ struct InventoryGroup: Identifiable {
     let locationName: String?
 
     let minDaysLeft: Int?
-    let minDueDateISO: String?     // "yyyy-MM-dd" (aus v_units_display)
+    let minFrozenAtISO: String?   // <- so muss es heißen
 
     let count: Int
     let items: [UnitDisplayRow]
 
-    var minDueDateFormatted: String? {
-        guard let iso = minDueDateISO else { return nil }
+    var minFrozenAtFormatted: String? {
+        guard let iso = minFrozenAtISO else { return nil }
         return Self.formatISODate(iso)
     }
 

@@ -72,7 +72,7 @@ struct InventoryRow: View {
     }
 
     private func daysLeftText(_ days: Int) -> String {
-        if days < 0 { return "drüber \(abs(days))T" }
+        if days < 0 { return "+ \(abs(days)) Tage" }
         if days == 0 { return "heute" }
         if days == 1 { return "1 Tag" }
         return "\(days) Tage"

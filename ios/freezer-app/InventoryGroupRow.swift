@@ -13,52 +13,76 @@ struct InventoryGroupRow: View {
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
             VStack(alignment: .leading, spacing: 6) {
-                Text(group.title)
-                    .font(.headline)
-                    .foregroundStyle(.primary)
-                    .lineLimit(2)
 
-                HStack(spacing: 8) {
-                    if let loc = group.locationName, !loc.isEmpty {
-                        HStack(spacing: 6) {
-                            Image(systemName: "archivebox")
-                            Text(loc)
-                        }
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        .layoutPriority(1)
+                // Title row: "3×" + Title
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    if group.count > 1 {
+                        CountPrefix(count: group.count)
                     }
 
-                    if let due = group.minDueDateFormatted {
-                        Text("• \(due)")
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                    }
+                    Text(group.title)
+                        .font(.headline)
+                        .foregroundStyle(.primary)
+                        .lineLimit(2)
                 }
-                .font(.subheadline)
-                .lineLimit(1)
-                .truncationMode(.tail)
+
+                subline
             }
 
             Spacer(minLength: 8)
 
-            VStack(alignment: .trailing, spacing: 8) {
-                if let days = group.minDaysLeft {
-                    DaysLeftBadge(daysLeft: days)
-                }
-
-                if group.count > 1 {
-                    CountBadge(count: group.count)
-                }
+            if let days = group.minDaysLeft {
+                DaysLeftBadge(daysLeft: days)
             }
         }
         .padding(.vertical, 4)
     }
+
+    // MARK: - Subline (Ort + • + Einlagedatum)
+    private var subline: some View {
+        let locText = (group.locationName ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+
+        return HStack(spacing: 6) {
+            if !locText.isEmpty {
+                HStack(spacing: 6) {
+                    Image(systemName: "archivebox")
+                    Text(locText)
+                }
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .layoutPriority(1)
+            }
+
+            if let frozen = group.minFrozenAtFormatted {
+                Text("•\(thinSpace)\(frozen)")
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+        }
+        .font(.subheadline)
+        .lineLimit(1)
+        .truncationMode(.tail)
+    }
+
+    private var thinSpace: String { "\u{2009}" } // thin space
 }
 
-/// Farbiger Badge wie vorher (kritisch/soon/neutral)
+private struct CountPrefix: View {
+    let count: Int
+
+    var body: some View {
+        Text("\(count)×")
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(.thinMaterial, in: Capsule())
+            .overlay(Capsule().strokeBorder(Color.white.opacity(0.12), lineWidth: 1))
+    }
+}
+
 private struct DaysLeftBadge: View {
     let daysLeft: Int
 
@@ -67,7 +91,14 @@ private struct DaysLeftBadge: View {
             .font(.footnote.weight(.semibold))
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
-            .background(Capsule().fill(backgroundColor))
+            .background(
+                Capsule(style: .continuous)
+                    .fill(backgroundColor)
+            )
+            .overlay(
+                Capsule(style: .continuous)
+                    .strokeBorder(borderColor, lineWidth: 1)
+            )
             .foregroundStyle(foregroundColor)
     }
 
@@ -88,5 +119,10 @@ private struct DaysLeftBadge: View {
         if daysLeft <= 2 { return .red }
         if daysLeft <= 7 { return .orange }
         return .secondary
+    }
+
+    private var borderColor: Color {
+        // sorgt dafür, dass die Pill-Form in Dark Mode sichtbar bleibt
+        Color.white.opacity(0.10)
     }
 }
