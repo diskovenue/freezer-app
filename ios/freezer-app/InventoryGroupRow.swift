@@ -24,9 +24,11 @@ struct InventoryGroupRow: View {
                         .font(.headline)
                         .foregroundStyle(.primary)
                         .lineLimit(2)
+                        .contentTransition(.opacity)
                 }
 
                 subline
+                    .contentTransition(.opacity)
             }
 
             Spacer(minLength: 8)
@@ -38,6 +40,7 @@ struct InventoryGroupRow: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, 4)
         .contentShape(Rectangle())
+        .animation(.snappy(duration: 0.28, extraBounce: 0), value: group.animationToken)
     }
 
     // MARK: - Subline (Ort + • + Einlagedatum)
@@ -78,6 +81,7 @@ private struct CountPrefix: View {
         Text("\(count)×")
             .font(.subheadline.weight(.semibold))
             .foregroundStyle(.secondary)
+            .contentTransition(.numericText())
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
             .background(.thinMaterial, in: Capsule())
@@ -91,6 +95,7 @@ private struct DaysLeftBadge: View {
     var body: some View {
         Text(label)
             .font(.footnote.weight(.semibold))
+            .contentTransition(.numericText())
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
             .background(

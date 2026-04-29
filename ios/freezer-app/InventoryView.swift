@@ -18,49 +18,79 @@ struct InventoryView: View {
 
     @State private var selectedGroup: InventoryGroup?
     @State private var selectedUnit: SelectedUnit?
+    @State private var pendingConsume: PendingConsume?
+    @State private var hiddenUnitIDs: Set<UUID> = []
+    @State private var removingUnitIDs: Set<UUID> = []
 
     // nil = Alle Kategorien
     @State private var selectedCategoryKey: String? = nil
 
     var body: some View {
         NavigationStack {
-            Group {
-                if vm.isLoading && vm.items.isEmpty {
-                    ProgressView("Lade Bestand …")
+            listContent
+                .overlay {
+                    if !vm.hasLoaded {
+                        ProgressView("Lade Bestand …")
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 10)
+                            .background(.ultraThinMaterial, in: Capsule())
+                    } else if let msg = vm.errorMessage, vm.items.isEmpty {
+                        ContentUnavailableView(
+                            "Fehler",
+                            systemImage: "exclamationmark.triangle",
+                            description: Text(msg)
+                        )
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-                } else if let msg = vm.errorMessage, vm.items.isEmpty {
-                    ContentUnavailableView(
-                        "Fehler",
-                        systemImage: "exclamationmark.triangle",
-                        description: Text(msg)
-                    )
-
-                } else if vm.items.isEmpty {
-                    ContentUnavailableView(
-                        "Noch nichts eingefroren",
-                        systemImage: "tray",
-                        description: Text("Scanne einen Sticker oder eine EAN und lege den ersten Eintrag an.")
-                    )
-
-                } else {
-                    listContent
+                    } else if vm.hasLoaded && vm.items.isEmpty {
+                        ContentUnavailableView(
+                            "Noch nichts eingefroren",
+                            systemImage: "tray",
+                            description: Text("Scanne einen Sticker oder eine EAN und lege den ersten Eintrag an.")
+                        )
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    }
                 }
-            }
-            .navigationTitle("Bestand")
-            .task { await vm.load() }
-            .refreshable { await vm.load() }
-            .onReceive(NotificationCenter.default.publisher(for: .inventoryDataDidChange)) { _ in
-                Task { await vm.load() }
+                .navigationTitle("Bestand")
+                .task { await vm.load() }
+                .refreshable { await vm.load() }
+                .onReceive(NotificationCenter.default.publisher(for: .inventoryDataDidChange)) { _ in
+                    Task { await vm.load() }
+                }
+                .onReceive(NotificationCenter.default.publisher(for: .unitDetailDidConsume)) { notification in
+                    guard
+                        let id = notification.userInfo?[AppNotificationKey.unitID] as? UUID,
+                        let title = notification.userInfo?[AppNotificationKey.title] as? String
+                    else { return }
+                    vm.presentUndoItem(id: id, title: title)
+                }
+                .onChange(of: pendingConsume?.id) { _, newValue in
+                    guard newValue != nil, let pending = pendingConsume else { return }
+                    Task {
+                    try? await Task.sleep(nanoseconds: pending.delayNanoseconds)
+                    await vm.consume(id: pending.id, title: pending.title, animateRemoval: pending.animateRemoval)
+                    hiddenUnitIDs.remove(pending.id)
+                    removingUnitIDs.remove(pending.id)
+                    if pendingConsume?.id == pending.id {
+                        pendingConsume = nil
+                    }
+                }
             }
         }
         // Group sheet
         .sheet(item: $selectedGroup) { group in
-            InventoryGroupDetailView(ean: groupEAN(group), title: group.title)
+            InventoryGroupDetailView(
+                ean: groupEAN(group),
+                title: group.title,
+                onConsumeClose: { selectedGroup = nil }
+            )
         }
         // Unit detail sheet
         .sheet(item: $selectedUnit) { sel in
-            UnitDetailView(unitId: sel.id, displayName: sel.title)
+            UnitDetailView(
+                unitId: sel.id,
+                displayName: sel.title,
+                onConsumeClose: { selectedUnit = nil }
+            )
         }
         // Undo banner
         .overlay(alignment: .bottom) {
@@ -68,7 +98,10 @@ struct InventoryView: View {
                 UndoBanner(
                     title: "\(undo.title) entnommen",
                     duration: 5,
-                    onUndo: { Task { await vm.undoLastConsume() } },
+                    onUndo: {
+                        AppHaptics.selection()
+                        Task { await vm.undoLastConsume() }
+                    },
                     onDismiss: { vm.undoItem = nil }
                 )
                 .transition(.move(edge: .bottom).combined(with: .opacity))
@@ -81,56 +114,53 @@ struct InventoryView: View {
 
     private var listContent: some View {
         List {
-            // Chips als LIST-HEADER (scrollt normal mit, refresh bleibt korrekt)
-            chipsHeaderRow
+            if !vm.hasLoaded {
+                loadingPlaceholderContent
+            } else if !vm.items.isEmpty {
+                // Chips als LIST-HEADER (scrollt normal mit, refresh bleibt korrekt)
+                chipsHeaderRow
 
-            if groupedSections.isEmpty {
-                ContentUnavailableView(
-                    "Keine Treffer",
-                    systemImage: "magnifyingglass",
-                    description: Text("Für „\(searchText)“ wurde nichts gefunden.")
-                )
-                .listRowBackground(Color.clear)
+                if groupedSections.isEmpty {
+                    ContentUnavailableView(
+                        "Keine Treffer",
+                        systemImage: "magnifyingglass",
+                        description: Text("Für „\(searchText)“ wurde nichts gefunden.")
+                    )
+                    .listRowBackground(Color.clear)
 
-            } else {
-                ForEach(groupedSections, id: \.key) { section in
-                    Section {
-                        ForEach(section.value) { group in
-                            Button {
-                                if group.count > 1, group.id.hasPrefix("EAN:") {
-                                    selectedGroup = group
-                                } else if let first = group.items.first {
-                                    selectedUnit = SelectedUnit(id: first.id, title: group.title)
-                                }
-                            } label: {
-                                InventoryGroupRow(group: group)
+                } else {
+                    ForEach(renderedGroupedSections, id: \.key) { section in
+                        Section {
+                            ForEach(Array(section.value.enumerated()), id: \.element.id) { index, group in
+                                groupRow(
+                                    group,
+                                    consumeDelayNanoseconds: consumeDelayNanoseconds(
+                                        for: group,
+                                        indexInSection: index,
+                                        sectionCount: section.value.count
+                                    )
+                                )
                             }
-                            .buttonStyle(.plain)
-                            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                                Button {
-                                    Task {
-                                        if let first = group.items.first {
-                                            await vm.consume(id: first.id, title: group.title)
-                                        }
-                                    }
-                                } label: {
-                                    Label("Entnehmen", systemImage: "checkmark")
-                                }
-                                .tint(.green)
+                        } header: {
+                            // Sticky Section-Header bleibt in List/Section automatisch
+                            HStack(spacing: 8) {
+                                Text(section.key)
+                                Spacer()
+                                Text("\(section.value.reduce(0) { $0 + $1.count })")
+                                    .font(.footnote.weight(.semibold))
+                                    .foregroundStyle(.secondary)
                             }
+                            .textCase(nil)
+                            .zIndex(0)
                         }
-                    } header: {
-                        // Sticky Section-Header bleibt in List/Section automatisch
-                        HStack(spacing: 8) {
-                            Text(section.key)
-                            Spacer()
-                            Text("\(section.value.reduce(0) { $0 + $1.count })")
-                                .font(.footnote.weight(.semibold))
-                                .foregroundStyle(.secondary)
-                        }
-                        .textCase(nil)
                     }
                 }
+            } else {
+                Color.clear
+                    .frame(height: 1)
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+                    .accessibilityHidden(true)
             }
         }
         .listStyle(.insetGrouped)
@@ -140,7 +170,87 @@ struct InventoryView: View {
             prompt: "Suchen"
         )
         .scrollDismissesKeyboard(.immediately)
+        .animation(.snappy(duration: 0.28, extraBounce: 0), value: vm.items.map(\.id))
+        .animation(.snappy(duration: 0.18, extraBounce: 0), value: removingUnitIDs)
         .animation(.snappy(duration: 0.28, extraBounce: 0), value: selectedCategoryKey)
+    }
+
+    private var loadingPlaceholderContent: some View {
+        Group {
+            loadingPlaceholderChipsRow
+
+            Section {
+                ForEach(0..<4, id: \.self) { _ in
+                    placeholderRow
+                }
+            } header: {
+                placeholderSectionHeader
+            }
+
+            Section {
+                ForEach(0..<3, id: \.self) { _ in
+                    placeholderRow
+                }
+            } header: {
+                placeholderSectionHeader
+            }
+        }
+    }
+
+    private var loadingPlaceholderChipsRow: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 10) {
+                ForEach(0..<4, id: \.self) { index in
+                    Capsule(style: .continuous)
+                        .fill(Color(.tertiarySystemFill))
+                        .frame(width: [74, 106, 92, 118][index], height: 34)
+                        .redacted(reason: .placeholder)
+                }
+            }
+            .padding(.vertical, 6)
+        }
+        .listRowInsets(EdgeInsets(top: 6, leading: 0, bottom: 6, trailing: 0))
+        .listRowBackground(Color.clear)
+        .listRowSeparator(.hidden)
+        .allowsHitTesting(false)
+    }
+
+    private var placeholderSectionHeader: some View {
+        HStack {
+            RoundedRectangle(cornerRadius: 4, style: .continuous)
+                .fill(Color(.tertiarySystemFill))
+                .frame(width: 120, height: 14)
+            Spacer()
+            RoundedRectangle(cornerRadius: 4, style: .continuous)
+                .fill(Color(.tertiarySystemFill))
+                .frame(width: 20, height: 14)
+        }
+        .redacted(reason: .placeholder)
+        .textCase(nil)
+    }
+
+    private var placeholderRow: some View {
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 8) {
+                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                    .fill(Color(.tertiarySystemFill))
+                    .frame(width: 170, height: 18)
+
+                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                    .fill(Color(.tertiarySystemFill))
+                    .frame(width: 130, height: 13)
+            }
+
+            Spacer(minLength: 8)
+
+            Capsule(style: .continuous)
+                .fill(Color(.tertiarySystemFill))
+                .frame(width: 54, height: 28)
+        }
+        .padding(.vertical, 6)
+        .redacted(reason: .placeholder)
+        .listRowSeparator(.hidden)
+        .allowsHitTesting(false)
     }
 
     // MARK: - Chips header row
@@ -155,6 +265,7 @@ struct InventoryView: View {
                         count: totalUnitCountAllCategories,
                         isSelected: selectedCategoryKey == nil
                     ) {
+                        AppHaptics.selection()
                         selectedCategoryKey = nil
                         selectedChipScrollID = Self.allCategoriesChipID
                     }
@@ -166,6 +277,7 @@ struct InventoryView: View {
                             count: entry.count,
                             isSelected: selectedCategoryKey == entry.key
                         ) {
+                            AppHaptics.selection()
                             if selectedCategoryKey == entry.key {
                                 selectedCategoryKey = nil
                                 selectedChipScrollID = Self.allCategoriesChipID
@@ -325,6 +437,14 @@ struct InventoryView: View {
         }
     }
 
+    private var renderedGroupedSections: [(key: String, value: [InventoryGroup])] {
+        groupedSections.compactMap { section in
+            let visibleGroups = section.value.filter { !isRemovingGroupRow($0) }
+            guard !visibleGroups.isEmpty else { return nil }
+            return (key: section.key, value: visibleGroups)
+        }
+    }
+
     // MARK: - Helpers
 
     private struct SelectedUnit: Identifiable {
@@ -337,6 +457,80 @@ struct InventoryView: View {
             return String(group.id.dropFirst(4))
         }
         return ""
+    }
+
+    @ViewBuilder
+    private func groupRow(_ group: InventoryGroup, consumeDelayNanoseconds: UInt64) -> some View {
+        Button {
+            if group.count > 1, group.id.hasPrefix("EAN:") {
+                selectedGroup = group
+            } else if let first = group.items.first {
+                selectedUnit = SelectedUnit(id: first.id, title: group.title)
+            }
+        } label: {
+            InventoryGroupRow(group: group)
+        }
+        .opacity(isHiddenGroupRow(group) ? 0 : 1)
+        .listRowBackground(isHiddenGroupRow(group) ? AnyView(Color.clear) : AnyView(Color(uiColor: .secondarySystemGroupedBackground)))
+        .buttonStyle(.plain)
+        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+            Button {
+                if let first = group.items.first {
+                    AppHaptics.swipeAction()
+                    if group.count == 1 {
+                        hiddenUnitIDs.insert(first.id)
+                        Task { @MainActor in
+                            try? await Task.sleep(nanoseconds: 70_000_000)
+                            _ = withAnimation(.snappy(duration: 0.18, extraBounce: 0)) {
+                                removingUnitIDs.insert(first.id)
+                            }
+                        }
+                    }
+                    pendingConsume = PendingConsume(
+                        id: first.id,
+                        title: group.title,
+                        delayNanoseconds: consumeDelayNanoseconds,
+                        animateRemoval: shouldAnimateRemovingGroupRow(
+                            group,
+                            consumeDelayNanoseconds: consumeDelayNanoseconds
+                        )
+                    )
+                }
+            } label: {
+                Label("Entnehmen", systemImage: "checkmark")
+            }
+            .tint(.green)
+        }
+    }
+
+    private func consumeDelayNanoseconds(for group: InventoryGroup, indexInSection: Int, sectionCount: Int) -> UInt64 {
+        let defaultDelay: UInt64 = 300_000_000
+        let lastSingleItemInSection = group.count == 1 && indexInSection == sectionCount - 1
+        return lastSingleItemInSection ? 650_000_000 : defaultDelay
+    }
+
+    private struct PendingConsume: Identifiable {
+        let id: UUID
+        let title: String?
+        let delayNanoseconds: UInt64
+        let animateRemoval: Bool
+    }
+
+    private func isRemovingGroupRow(_ group: InventoryGroup) -> Bool {
+        guard group.count == 1, let first = group.items.first else { return false }
+        return removingUnitIDs.contains(first.id)
+    }
+
+    private func isHiddenGroupRow(_ group: InventoryGroup) -> Bool {
+        guard group.count == 1, let first = group.items.first else { return false }
+        return hiddenUnitIDs.contains(first.id)
+    }
+
+    private func shouldAnimateRemovingGroupRow(
+        _ group: InventoryGroup,
+        consumeDelayNanoseconds: UInt64
+    ) -> Bool {
+        !(group.count == 1 && consumeDelayNanoseconds > 300_000_000)
     }
 
     private func orderedCategoryKeys(in groups: [InventoryGroup]) -> [String] {

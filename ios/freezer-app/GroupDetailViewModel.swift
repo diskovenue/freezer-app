@@ -31,7 +31,10 @@ final class GroupDetailViewModel: ObservableObject {
         defer { isLoading = false }
 
         do {
-            items = try await repo.fetchUnitsByEAN(ean)
+            let loadedItems = try await repo.fetchUnitsByEAN(ean)
+            withTransaction(Transaction(animation: nil)) {
+                items = loadedItems
+            }
         } catch {
             errorMessage = AppError.message(for: error)
         }
@@ -42,25 +45,37 @@ final class GroupDetailViewModel: ObservableObject {
         errorMessage = nil
         defer { isLoading = false }
 
-        do {
-            try await repo.consumeUnit(id: id)
-            let updatedItems = try await repo.fetchUnitsByEAN(ean)
+        let previousItems = items
+        let optimisticItems = items.filter { $0.id != id }
 
-            withAnimation(.snappy(duration: 0.28, extraBounce: 0)) {
-                undoItem = UndoItem(id: id, title: title ?? "Entnommen")
-                items = updatedItems
-            }
+        withAnimation(.snappy(duration: 0.28, extraBounce: 0)) {
+            undoItem = UndoItem(id: id, title: title ?? "Entnommen")
+            items = optimisticItems
+        }
 
-            let current = undoItem?.id
-            Task {
-                try? await Task.sleep(nanoseconds: 5_000_000_000)
-                if self.undoItem?.id == current {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        self.undoItem = nil
-                    }
+        let current = undoItem?.id
+        Task {
+            try? await Task.sleep(nanoseconds: 5_000_000_000)
+            if self.undoItem?.id == current {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    self.undoItem = nil
                 }
             }
+        }
+
+        do {
+            try await repo.consumeUnit(id: id)
+            try? await Task.sleep(nanoseconds: 280_000_000)
+            let updatedItems = try await repo.fetchUnitsByEAN(ean)
+            withTransaction(Transaction(animation: nil)) {
+                items = updatedItems
+            }
+            NotificationCenter.default.post(name: .inventoryDataDidChange, object: nil)
         } catch {
+            withAnimation(.snappy(duration: 0.28, extraBounce: 0)) {
+                undoItem = nil
+                items = previousItems
+            }
             errorMessage = AppError.message(for: error)
         }
     }
@@ -79,8 +94,25 @@ final class GroupDetailViewModel: ObservableObject {
                 undoItem = nil
                 items = updatedItems
             }
+            NotificationCenter.default.post(name: .inventoryDataDidChange, object: nil)
         } catch {
             errorMessage = AppError.message(for: error)
+        }
+    }
+
+    func presentUndoItem(id: UUID, title: String) {
+        withAnimation(.snappy(duration: 0.28, extraBounce: 0)) {
+            undoItem = UndoItem(id: id, title: title)
+        }
+
+        let current = undoItem?.id
+        Task {
+            try? await Task.sleep(nanoseconds: 5_000_000_000)
+            if self.undoItem?.id == current {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    self.undoItem = nil
+                }
+            }
         }
     }
 }

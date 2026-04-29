@@ -6,4 +6,11 @@
 //
 
 import SwiftUI
-struct ScanView: View { var body: some View { NavigationStack { Text("Scan") } } }
+
+struct ScanView: View {
+    var body: some View {
+        NavigationStack {
+            Text("Scan")
+        }
+    }
+}

@@ -19,7 +19,7 @@ struct SettingsView: View {
                         CategorySettingsView()
                     }
                 }
-                
+
                 Section("Darstellung") {
                     Picker("Modus", selection: $settings.appearance) {
                         ForEach(AppAppearance.allCases) { mode in

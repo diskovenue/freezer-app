@@ -117,17 +117,19 @@ struct LoginView: View {
                     Spacer()
                 }
                 .padding(.vertical, 16)
+                .frame(maxWidth: .infinity)
+                .background(
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .fill(buttonGradient)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .strokeBorder(.white.opacity(0.18), lineWidth: 1)
+                )
+                .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
             }
             .buttonStyle(.plain)
             .foregroundStyle(.white)
-            .background(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .fill(buttonGradient)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .strokeBorder(.white.opacity(0.18), lineWidth: 1)
-            )
             .disabled(auth.isLoading || email.isEmpty || password.isEmpty)
             .opacity(auth.isLoading || email.isEmpty || password.isEmpty ? 0.72 : 1)
 

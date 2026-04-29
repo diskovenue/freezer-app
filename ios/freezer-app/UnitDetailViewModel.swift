@@ -54,6 +54,14 @@ final class UnitDetailViewModel: ObservableObject {
             undoItem = UndoItem(id: unitId, title: title ?? "Entnommen")
         }
         notifyInventoryDataChanged()
+        NotificationCenter.default.post(
+            name: .unitDetailDidConsume,
+            object: nil,
+            userInfo: [
+                AppNotificationKey.unitID: unitId,
+                AppNotificationKey.title: title ?? "Entnommen"
+            ]
+        )
 
         let current = undoItem?.id
         Task { @MainActor in

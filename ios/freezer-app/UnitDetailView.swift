@@ -10,14 +10,16 @@ import SwiftUI
 struct UnitDetailView: View {
     let unitId: UUID
     let displayName: String?
+    let onConsumeClose: (() -> Void)?
 
     @Environment(\.dismiss) private var dismiss
     @StateObject private var vm: UnitDetailViewModel
     @State private var showEdit = false
 
-    init(unitId: UUID, displayName: String?) {
+    init(unitId: UUID, displayName: String?, onConsumeClose: (() -> Void)? = nil) {
         self.unitId = unitId
         self.displayName = displayName
+        self.onConsumeClose = onConsumeClose
         _vm = StateObject(wrappedValue: UnitDetailViewModel(unitId: unitId, initialDisplayName: displayName))
     }
 
@@ -68,6 +70,7 @@ struct UnitDetailView: View {
                         title: "\(undo.title) entnommen",
                         duration: 5,
                         onUndo: {
+                            AppHaptics.selection()
                             Task {
                                 do {
                                     try await vm.undoLastConsume()
@@ -141,9 +144,15 @@ struct UnitDetailView: View {
                 }
 
                 Button {
+                    AppHaptics.swipeAction()
                     Task {
                         do {
                             try await vm.consume()
+                            if let onConsumeClose {
+                                onConsumeClose()
+                            } else {
+                                dismiss()
+                            }
                         } catch {
                             vm.errorMessage = AppError.message(for: error)
                         }

@@ -27,6 +27,17 @@ struct InventoryGroup: Identifiable {
         return Self.formatISODate(iso)
     }
 
+    var animationToken: String {
+        [
+            String(count),
+            title,
+            locationName ?? "",
+            minDaysLeft.map(String.init) ?? "",
+            minFrozenAtISO ?? "",
+            items.first?.id.uuidString ?? ""
+        ].joined(separator: "|")
+    }
+
     private static func formatISODate(_ iso: String) -> String {
         let inFmt = DateFormatter()
         inFmt.locale = Locale(identifier: "en_US_POSIX")

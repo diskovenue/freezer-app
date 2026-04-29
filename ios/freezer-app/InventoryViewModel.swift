@@ -12,6 +12,7 @@ import SwiftUI
 @MainActor
 final class InventoryViewModel: ObservableObject {
     @Published var items: [UnitDisplayRow] = []
+    @Published var hasLoaded = false
     @Published var isLoading = false
     @Published var errorMessage: String?
 
@@ -25,43 +26,79 @@ final class InventoryViewModel: ObservableObject {
         let title: String
     }
 
+    init() {
+        let cachedItems = ListCache.load(.inventory)
+        if !cachedItems.isEmpty {
+            items = cachedItems
+            hasLoaded = true
+        }
+    }
+
     func load() async {
         isLoading = true
         errorMessage = nil
-        defer { isLoading = false }
+        defer {
+            isLoading = false
+            hasLoaded = true
+        }
 
         do {
-            items = try await repo.fetchUnitsDisplay()
+            let loadedItems = try await repo.fetchUnitsDisplay()
+            withTransaction(Transaction(animation: nil)) {
+                items = loadedItems
+            }
+            ListCache.save(loadedItems, for: .inventory)
         } catch {
             errorMessage = AppError.message(for: error)
         }
     }
 
-    func consume(id: UUID, title: String?) async {
+    func consume(id: UUID, title: String?, animateRemoval: Bool = true) async {
         isLoading = true
         errorMessage = nil
         defer { isLoading = false }
 
-        do {
-            try await repo.consumeUnit(id: id)
-            let updatedItems = try await repo.fetchUnitsDisplay()
+        let previousItems = items
+        let optimisticItems = items.filter { $0.id != id }
 
+        if animateRemoval {
             withAnimation(.snappy(duration: 0.28, extraBounce: 0)) {
                 undoItem = UndoItem(id: id, title: title ?? "Entnommen")
-                items = updatedItems
+                items = optimisticItems
             }
+        } else {
+            withTransaction(Transaction(animation: nil)) {
+                undoItem = UndoItem(id: id, title: title ?? "Entnommen")
+                items = optimisticItems
+            }
+        }
+        ListCache.save(optimisticItems, for: .inventory)
 
-            // Banner nach ein paar Sekunden automatisch ausblenden
-            let current = undoItem?.id
-            Task {
-                try? await Task.sleep(nanoseconds: 5_000_000_000)
-                if self.undoItem?.id == current {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        self.undoItem = nil
-                    }
+        let current = undoItem?.id
+        Task {
+            try? await Task.sleep(nanoseconds: 5_000_000_000)
+            if self.undoItem?.id == current {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    self.undoItem = nil
                 }
             }
+        }
+
+        do {
+            try await repo.consumeUnit(id: id)
+            try? await Task.sleep(nanoseconds: 280_000_000)
+            let updatedItems = try await repo.fetchUnitsDisplay()
+            withTransaction(Transaction(animation: nil)) {
+                items = updatedItems
+            }
+            ListCache.save(updatedItems, for: .inventory)
+            NotificationCenter.default.post(name: .inventoryDataDidChange, object: nil)
         } catch {
+            withAnimation(.snappy(duration: 0.28, extraBounce: 0)) {
+                undoItem = nil
+                items = previousItems
+            }
+            ListCache.save(previousItems, for: .inventory)
             errorMessage = AppError.message(for: error)
         }
     }
@@ -80,8 +117,26 @@ final class InventoryViewModel: ObservableObject {
                 undoItem = nil
                 items = updatedItems
             }
+            ListCache.save(updatedItems, for: .inventory)
+            NotificationCenter.default.post(name: .inventoryDataDidChange, object: nil)
         } catch {
             errorMessage = AppError.message(for: error)
+        }
+    }
+
+    func presentUndoItem(id: UUID, title: String) {
+        withAnimation(.snappy(duration: 0.28, extraBounce: 0)) {
+            undoItem = UndoItem(id: id, title: title)
+        }
+
+        let current = undoItem?.id
+        Task {
+            try? await Task.sleep(nanoseconds: 5_000_000_000)
+            if self.undoItem?.id == current {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    self.undoItem = nil
+                }
+            }
         }
     }
 }

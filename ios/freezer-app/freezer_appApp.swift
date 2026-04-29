@@ -6,17 +6,21 @@
 //
 
 import SwiftUI
+import Auth
 
 @main
 struct freezer_appApp: App {
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var auth = AuthViewModel()
     @StateObject private var settings = AppSettings()
+    @StateObject private var navigation = AppNavigationState.shared
 
     var body: some Scene {
         WindowGroup {
             RootView()
                 .environmentObject(auth)
                 .environmentObject(settings)
+                .environmentObject(navigation)
                 .preferredColorScheme(settings.appearance.colorScheme)
         }
     }
@@ -38,10 +42,19 @@ struct RootView: View {
                     .transition(rootTransition)
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(.systemBackground).ignoresSafeArea())
         .animation(.easeInOut(duration: 0.28), value: auth.hasLoadedSession)
         .animation(.easeInOut(duration: 0.28), value: auth.session != nil)
         .task {
             await auth.loadSession()
+            await PushRegistration.syncStoredTokenIfPossible()
+        }
+        .onChange(of: auth.session?.user.id) { _, newValue in
+            guard newValue != nil else { return }
+            Task {
+                await PushRegistration.syncStoredTokenIfPossible()
+            }
         }
     }
 
@@ -56,6 +69,6 @@ struct RootView: View {
     }
 
     private var rootTransition: AnyTransition {
-        .opacity.combined(with: .scale(scale: 0.985))
+        .opacity
     }
 }

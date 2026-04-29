@@ -6,7 +6,7 @@
 //
 import Foundation
 
-struct UnitDisplayRow: Decodable, Identifiable {
+struct UnitDisplayRow: Codable, Identifiable {
     let id: UUID
 
     let product_ean: String?      // <-- neu/ wichtig für Gruppierung
