@@ -33,7 +33,7 @@ final class InventoryViewModel: ObservableObject {
         do {
             items = try await repo.fetchUnitsDisplay()
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = AppError.message(for: error)
         }
     }
 
@@ -62,7 +62,7 @@ final class InventoryViewModel: ObservableObject {
                 }
             }
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = AppError.message(for: error)
         }
     }
 
@@ -81,7 +81,7 @@ final class InventoryViewModel: ObservableObject {
                 items = updatedItems
             }
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = AppError.message(for: error)
         }
     }
 }

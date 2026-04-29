@@ -24,7 +24,7 @@ final class CategoriesViewModel: ObservableObject {
         do {
             items = try await repo.fetchCategories()
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = AppError.message(for: error)
         }
     }
 
@@ -37,7 +37,7 @@ final class CategoriesViewModel: ObservableObject {
             try await repo.updateFreezerMonths(categoryId: categoryId, months: months)
             items = try await repo.fetchCategories()
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = AppError.message(for: error)
         }
     }
 }

@@ -166,8 +166,13 @@ struct InventoryView: View {
                             count: entry.count,
                             isSelected: selectedCategoryKey == entry.key
                         ) {
-                            selectedCategoryKey = entry.key
-                            selectedChipScrollID = chipScrollID(for: entry.key)
+                            if selectedCategoryKey == entry.key {
+                                selectedCategoryKey = nil
+                                selectedChipScrollID = Self.allCategoriesChipID
+                            } else {
+                                selectedCategoryKey = entry.key
+                                selectedChipScrollID = chipScrollID(for: entry.key)
+                            }
                         }
                         .id(chipScrollID(for: entry.key))
                     }
@@ -263,33 +268,32 @@ struct InventoryView: View {
         }
 
         let mapped: [InventoryGroup] = dict.map { (key, values) in
-            let first = values.first!
+            let sortedItems = values.sorted(by: sortUnits)
+            let representative = sortedItems.first!
 
-            let emoji = first.category_emoji ?? "📦"
-            let catName = first.category_name ?? "Sonstiges"
+            let emoji = representative.category_emoji ?? "📦"
+            let catName = representative.category_name ?? "Sonstiges"
             let categoryKey = "\(emoji) \(catName)"
 
             let minDays: Int? = values.compactMap(\.days_left).min()
-            let minFrozenISO: String? = values.compactMap(\.frozen_at).filter { !$0.isEmpty }.min()
-
-            let sortedItems = values.sorted { ($0.days_left ?? 999_999) < ($1.days_left ?? 999_999) }
+            let representativeFrozenISO = representative.frozen_at?.isEmpty == false ? representative.frozen_at : nil
 
             return InventoryGroup(
                 id: key,
-                title: first.display_name ?? "Unbenannt",
+                title: representative.display_name ?? "Unbenannt",
                 categoryKey: categoryKey,
-                categoryName: first.category_name,
-                categoryEmoji: first.category_emoji,
-                categorySortOrder: first.category_sort_order,
-                locationName: first.location_name,
+                categoryName: representative.category_name,
+                categoryEmoji: representative.category_emoji,
+                categorySortOrder: representative.category_sort_order,
+                locationName: representative.location_name,
                 minDaysLeft: minDays,
-                minFrozenAtISO: minFrozenISO,
+                minFrozenAtISO: representativeFrozenISO,
                 count: values.count,
                 items: sortedItems
             )
         }
 
-        return mapped.sorted { ($0.minDaysLeft ?? 999_999) < ($1.minDaysLeft ?? 999_999) }
+        return mapped.sorted(by: sortGroups)
     }
 
     // MARK: - Chip data (immer alle sichtbar)
@@ -316,7 +320,7 @@ struct InventoryView: View {
     private var groupedSections: [(key: String, value: [InventoryGroup])] {
         let dict = Dictionary(grouping: filteredGroupsByCategory) { $0.categoryKey }
         return orderedCategoryKeys(in: filteredGroupsByCategory).map { key in
-            let values = (dict[key] ?? []).sorted { ($0.minDaysLeft ?? 999_999) < ($1.minDaysLeft ?? 999_999) }
+            let values = (dict[key] ?? []).sorted(by: sortGroups)
             return (key: key, value: values)
         }
     }
@@ -350,5 +354,37 @@ struct InventoryView: View {
             let rhsIndex = groups.firstIndex { $0.categoryKey == rhs } ?? .max
             return lhsIndex < rhsIndex
         }
+    }
+
+    private func sortUnits(_ lhs: UnitDisplayRow, _ rhs: UnitDisplayRow) -> Bool {
+        let lhsDays = lhs.days_left ?? 999_999
+        let rhsDays = rhs.days_left ?? 999_999
+        if lhsDays != rhsDays { return lhsDays < rhsDays }
+
+        let lhsName = lhs.display_name ?? ""
+        let rhsName = rhs.display_name ?? ""
+        if lhsName != rhsName { return lhsName.localizedStandardCompare(rhsName) == .orderedAscending }
+
+        let lhsFrozenAt = lhs.frozen_at ?? ""
+        let rhsFrozenAt = rhs.frozen_at ?? ""
+        if lhsFrozenAt != rhsFrozenAt { return lhsFrozenAt < rhsFrozenAt }
+
+        return lhs.id.uuidString < rhs.id.uuidString
+    }
+
+    private func sortGroups(_ lhs: InventoryGroup, _ rhs: InventoryGroup) -> Bool {
+        let lhsDays = lhs.minDaysLeft ?? 999_999
+        let rhsDays = rhs.minDaysLeft ?? 999_999
+        if lhsDays != rhsDays { return lhsDays < rhsDays }
+
+        let lhsTitle = lhs.title
+        let rhsTitle = rhs.title
+        if lhsTitle != rhsTitle { return lhsTitle.localizedStandardCompare(rhsTitle) == .orderedAscending }
+
+        let lhsFrozenAt = lhs.minFrozenAtISO ?? ""
+        let rhsFrozenAt = rhs.minFrozenAtISO ?? ""
+        if lhsFrozenAt != rhsFrozenAt { return lhsFrozenAt < rhsFrozenAt }
+
+        return lhs.id < rhs.id
     }
 }

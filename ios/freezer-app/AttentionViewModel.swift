@@ -31,7 +31,7 @@ final class AttentionViewModel: ObservableObject {
         do {
             items = try await repo.fetchAttention()
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = AppError.message(for: error)
         }
     }
 
@@ -59,7 +59,7 @@ final class AttentionViewModel: ObservableObject {
                 }
             }
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = AppError.message(for: error)
         }
     }
 
@@ -78,7 +78,7 @@ final class AttentionViewModel: ObservableObject {
                 items = updatedItems
             }
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = AppError.message(for: error)
         }
     }
 }

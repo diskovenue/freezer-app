@@ -33,7 +33,7 @@ final class GroupDetailViewModel: ObservableObject {
         do {
             items = try await repo.fetchUnitsByEAN(ean)
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = AppError.message(for: error)
         }
     }
 
@@ -61,7 +61,7 @@ final class GroupDetailViewModel: ObservableObject {
                 }
             }
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = AppError.message(for: error)
         }
     }
 
@@ -80,7 +80,7 @@ final class GroupDetailViewModel: ObservableObject {
                 items = updatedItems
             }
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = AppError.message(for: error)
         }
     }
 }

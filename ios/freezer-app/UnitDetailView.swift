@@ -72,7 +72,7 @@ struct UnitDetailView: View {
                                 do {
                                     try await vm.undoLastConsume()
                                 } catch {
-                                    vm.errorMessage = error.localizedDescription
+                                    vm.errorMessage = AppError.message(for: error)
                                 }
                             }
                         },
@@ -93,6 +93,11 @@ struct UnitDetailView: View {
 
                 if let displayUnit = vm.displayUnit {
                     detailCard("Übersicht") {
+                        detailRow(
+                            icon: "archivebox",
+                            title: "Ort",
+                            value: displayUnit.location_name
+                        )
                         detailRow(
                             icon: "tag",
                             title: "Kategorie",
@@ -119,7 +124,7 @@ struct UnitDetailView: View {
                 detailCard("Details") {
                     detailRow(icon: "calendar", title: "Eingelegt am", value: formatOptionalISODate(unit.frozen_at))
                     detailRow(icon: "hourglass", title: "MHD", value: formatOptionalISODate(unit.best_before))
-                    detailRow(icon: "scalemass", title: "Gewicht", value: unit.weight_g.map { "\($0) g" })
+                    detailRow(icon: quantityIcon(for: unit), title: "Menge", value: quantityLabel(for: unit))
                 }
 
                 if let note = unit.note, !note.isEmpty {
@@ -140,7 +145,7 @@ struct UnitDetailView: View {
                         do {
                             try await vm.consume()
                         } catch {
-                            vm.errorMessage = error.localizedDescription
+                            vm.errorMessage = AppError.message(for: error)
                         }
                     }
                 } label: {
@@ -303,6 +308,27 @@ struct UnitDetailView: View {
         if daysLeft <= 2 { return .red }
         if daysLeft <= 7 { return .orange }
         return .primary
+    }
+
+    private func quantityLabel(for unit: FreezerUnit) -> String? {
+        if let value = unit.quantity_value {
+            let normalizedUnit = unit.quantity_unit?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            if normalizedUnit == "portionen" {
+                return value == 1 ? "1 Portion" : "\(value) Portionen"
+            }
+            return "\(value) g"
+        }
+
+        if let weight = unit.weight_g {
+            return "\(weight) g"
+        }
+
+        return nil
+    }
+
+    private func quantityIcon(for unit: FreezerUnit) -> String {
+        let normalizedUnit = unit.quantity_unit?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return normalizedUnit == "portionen" ? "fork.knife" : "scalemass"
     }
 }
 

@@ -11,6 +11,7 @@ import Combine
 
 @MainActor
 final class AuthViewModel: ObservableObject {
+    @Published var hasLoadedSession = false
     @Published var session: Session?
     @Published var isLoading = false
     @Published var errorMessage: String?
@@ -18,12 +19,16 @@ final class AuthViewModel: ObservableObject {
     private let client = SupabaseConfig.client
 
     func loadSession() async {
+        guard !hasLoadedSession else { return }
+
         do {
             session = try await client.auth.session
         } catch {
             // keine Session ist ok → bleibt nil
             session = nil
         }
+
+        hasLoadedSession = true
     }
 
     func signIn(email: String, password: String) async {
@@ -35,8 +40,9 @@ final class AuthViewModel: ObservableObject {
             _ = try await client.auth.signIn(email: email, password: password)
             // Session danach direkt aus dem Client holen:
             session = try await client.auth.session
+            hasLoadedSession = true
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = AppError.message(for: error)
         }
     }
 
@@ -48,8 +54,9 @@ final class AuthViewModel: ObservableObject {
         do {
             try await client.auth.signOut()
             session = nil
+            hasLoadedSession = true
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = AppError.message(for: error)
         }
     }
 }

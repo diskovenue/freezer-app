@@ -42,7 +42,7 @@ final class UnitDetailViewModel: ObservableObject {
             unit = try await unitRequest
             displayUnit = try await displayUnitRequest
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = AppError.message(for: error)
         }
     }
 
@@ -79,21 +79,32 @@ final class UnitDetailViewModel: ObservableObject {
     func saveEdits(
         nameOverride: String?,
         frozenAt: String?,
-        weightG: Int?,
+        quantityValue: Int?,
+        quantityUnit: String?,
+        categoryId: UUID?,
+        locationId: UUID,
         note: String?
     ) async throws {
         try await repo.updateUnit(
             id: unitId,
             nameOverride: nameOverride?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty,
             frozenAt: frozenAt,
-            weightG: weightG,
+            quantityValue: quantityValue,
+            quantityUnit: quantityUnit,
+            categoryId: categoryId,
+            locationId: locationId,
             note: note
         )
 
         async let unitRequest = repo.fetchUnit(id: unitId)
         async let displayUnitRequest = repo.fetchUnitDisplay(id: unitId)
-        unit = try await unitRequest
-        displayUnit = try await displayUnitRequest
+        let updatedUnit = try await unitRequest
+        let updatedDisplayUnit = try await displayUnitRequest
+
+        withAnimation(.snappy(duration: 0.28, extraBounce: 0)) {
+            unit = updatedUnit
+            displayUnit = updatedDisplayUnit
+        }
         notifyInventoryDataChanged()
     }
 
@@ -107,6 +118,20 @@ final class UnitDetailViewModel: ObservableObject {
 
     var editableName: String {
         preferredNameOverride ?? initialDisplayName ?? ""
+    }
+
+    var editableQuantityValue: String {
+        if let quantityValue = unit?.quantity_value {
+            return "\(quantityValue)"
+        }
+        if let weight = unit?.weight_g {
+            return "\(weight)"
+        }
+        return ""
+    }
+
+    var editableQuantityUnit: String {
+        unit?.quantity_unit ?? (unit?.weight_g != nil ? "g" : "g")
     }
 
     private var preferredNameOverride: String? {

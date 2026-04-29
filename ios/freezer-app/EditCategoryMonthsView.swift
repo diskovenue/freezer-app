@@ -11,8 +11,8 @@ struct EditCategoryMonthsView: View {
     let category: CategoryRow
     @ObservedObject var vm: CategoriesViewModel
 
-    @Environment(\.dismiss) private var dismiss
     @State private var months: Int
+    @State private var saveTask: Task<Void, Never>?
 
     init(category: CategoryRow, vm: CategoriesViewModel) {
         self.category = category
@@ -37,18 +37,19 @@ struct EditCategoryMonthsView: View {
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
-
-            Section {
-                Button("Speichern") {
-                    Task {
-                        await vm.updateMonths(categoryId: category.id, months: months)
-                        dismiss()
-                    }
-                }
-                .disabled(vm.isLoading)
-            }
         }
         .navigationTitle("Bearbeiten")
         .navigationBarTitleDisplayMode(.inline)
+        .onChange(of: months) { _, newValue in
+            saveTask?.cancel()
+            saveTask = Task {
+                try? await Task.sleep(nanoseconds: 350_000_000)
+                guard !Task.isCancelled else { return }
+                await vm.updateMonths(categoryId: category.id, months: newValue)
+            }
+        }
+        .onDisappear {
+            saveTask?.cancel()
+        }
     }
 }

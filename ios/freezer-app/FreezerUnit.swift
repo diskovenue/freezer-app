@@ -21,6 +21,8 @@ struct FreezerUnit: Decodable, Identifiable {
     let frozen_at: String?
     let best_before: String?
     let weight_g: Int?
+    let quantity_value: Int?
+    let quantity_unit: String?
 
     let note: String?
     let photo_path: String?

@@ -114,6 +114,8 @@ struct InventoryRepository {
                 frozen_at,
                 best_before,
                 weight_g,
+                quantity_value,
+                quantity_unit,
                 note,
                 photo_path,
                 status,
@@ -172,13 +174,20 @@ struct InventoryRepository {
         id: UUID,
         nameOverride: String?,
         frozenAt: String?,
-        weightG: Int?,
+        quantityValue: Int?,
+        quantityUnit: String?,
+        categoryId: UUID?,
+        locationId: UUID,
         note: String?
     ) async throws {
         struct Update: Encodable {
             let name_override: String?
             let frozen_at: String?
             let weight_g: Int?
+            let quantity_value: Int?
+            let quantity_unit: String?
+            let category_id: UUID?
+            let location_id: UUID
             let note: String?
         }
 
@@ -187,7 +196,11 @@ struct InventoryRepository {
             .update(Update(
                 name_override: nameOverride,
                 frozen_at: frozenAt,
-                weight_g: weightG,
+                weight_g: quantityUnit == "g" ? quantityValue : nil,
+                quantity_value: quantityValue,
+                quantity_unit: quantityUnit,
+                category_id: categoryId,
+                location_id: locationId,
                 note: note
             ))
             .eq("id", value: id.uuidString)

@@ -29,12 +29,30 @@ struct SettingsView: View {
                 }
 
                 Section {
-                    Button("Logout") {
+                    Button("Ausloggen") {
                         Task { await auth.signOut() }
                     }
                 }
             }
             .navigationTitle("Einstellungen")
+            .alert("Ausloggen fehlgeschlagen", isPresented: authErrorIsPresented) {
+                Button("OK", role: .cancel) {
+                    auth.errorMessage = nil
+                }
+            } message: {
+                Text(auth.errorMessage ?? "Bitte versuche es erneut.")
+            }
         }
+    }
+
+    private var authErrorIsPresented: Binding<Bool> {
+        Binding(
+            get: { auth.errorMessage != nil },
+            set: { newValue in
+                if !newValue {
+                    auth.errorMessage = nil
+                }
+            }
+        )
     }
 }
