@@ -19,10 +19,8 @@ struct UnitDetailView: View {
     @State private var showPhotoSourceDialog = false
     @State private var showCamera = false
     @State private var showPhotoLibrary = false
-    @State private var showCropper = false
     @State private var showFullscreenPhoto = false
     @State private var selectedPhotoItem: PhotosPickerItem?
-    @State private var cropImage: UIImage?
 
     init(unitId: UUID, displayName: String?, onConsumeClose: (() -> Void)? = nil) {
         self.unitId = unitId
@@ -111,30 +109,13 @@ struct UnitDetailView: View {
             }
             .fullScreenCover(isPresented: $showCamera) {
                 CameraImagePicker { image in
-                    cropImage = image
-                    showCropper = true
-                }
-            }
-            .fullScreenCover(isPresented: $showCropper) {
-                if let image = cropImage {
-                    PhotoCropView(
-                        image: image,
-                        onCancel: {
-                            cropImage = nil
-                            showCropper = false
-                        },
-                        onComplete: { croppedImage in
-                            cropImage = nil
-                            showCropper = false
-                            Task {
-                                do {
-                                    try await vm.setPhoto(croppedImage)
-                                } catch {
-                                    vm.errorMessage = AppError.message(for: error)
-                                }
-                            }
+                    Task {
+                        do {
+                            try await vm.setPhoto(image)
+                        } catch {
+                            vm.errorMessage = AppError.message(for: error)
                         }
-                    )
+                    }
                 }
             }
             .fullScreenCover(isPresented: $showFullscreenPhoto) {
@@ -187,11 +168,10 @@ struct UnitDetailView: View {
                             title: "Kategorie",
                             value: categoryLabel(for: displayUnit)
                         )
-                        detailRow(
-                            icon: "timer",
-                            title: "Frist",
-                            value: deadlineText(for: displayUnit.days_left),
-                            valueColor: deadlineColor(for: displayUnit.days_left)
+                        deadlineProgressModule(
+                            frozenAt: displayUnit.frozen_at,
+                            dueDate: displayUnit.due_date,
+                            daysLeft: displayUnit.days_left
                         )
                     }
                 }
@@ -409,22 +389,79 @@ struct UnitDetailView: View {
         }
     }
 
+    @ViewBuilder
+    private func deadlineProgressModule(frozenAt: String?, dueDate: String?, daysLeft: Int?) -> some View {
+        if let frozenAt, let dueDate {
+            HStack(alignment: .top, spacing: 12) {
+                DetailIcon(symbol: "timer")
+
+                VStack(alignment: .leading, spacing: 8) {
+                    let progress = deadlineProgress(frozenAt: frozenAt, dueDate: dueDate)
+                    let color = deadlineProgressColor(for: progress, daysLeft: daysLeft)
+
+                    Text(deadlineDurationText(daysLeft: daysLeft))
+                        .font(.footnote.weight(.medium))
+                        .foregroundStyle(color)
+
+                    deadlineProgressBar(
+                        frozenAt: frozenAt,
+                        dueDate: dueDate,
+                        daysLeft: daysLeft
+                    )
+                }
+            }
+        }
+    }
+
+    private func deadlineProgressBar(frozenAt: String, dueDate: String, daysLeft: Int?) -> some View {
+        let progress = deadlineProgress(frozenAt: frozenAt, dueDate: dueDate)
+        let color = deadlineProgressColor(for: progress, daysLeft: daysLeft)
+
+        return GeometryReader { proxy in
+            ZStack(alignment: .leading) {
+                Capsule(style: .continuous)
+                    .fill(Color.primary.opacity(0.08))
+
+                Capsule(style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: deadlineGradientColors(for: color),
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
+                    .frame(width: max(10, proxy.size.width * progress))
+
+                Circle()
+                    .fill(color)
+                    .frame(width: 8, height: 8)
+                    .shadow(color: color.opacity(0.28), radius: 6, y: 0)
+                    .offset(x: max(0, min(proxy.size.width - 8, (proxy.size.width * progress) - 8)))
+                    .opacity(progress > 0.02 ? 1 : 0)
+            }
+        }
+        .frame(height: 8)
+    }
+
     private func formatOptionalISODate(_ iso: String?) -> String? {
         guard let iso else { return nil }
         return formatISODate(iso)
     }
 
     private func formatISODate(_ iso: String) -> String {
-        let inFmt = DateFormatter()
-        inFmt.locale = Locale(identifier: "en_US_POSIX")
-        inFmt.dateFormat = "yyyy-MM-dd"
-
         let outFmt = DateFormatter()
         outFmt.locale = Locale(identifier: "de_DE")
         outFmt.dateFormat = "dd.MM.yy"
 
-        guard let d = inFmt.date(from: iso) else { return iso }
+        guard let d = parseISODate(iso) else { return iso }
         return outFmt.string(from: d)
+    }
+
+    private func parseISODate(_ iso: String) -> Date? {
+        let inFmt = DateFormatter()
+        inFmt.locale = Locale(identifier: "en_US_POSIX")
+        inFmt.dateFormat = "yyyy-MM-dd"
+        return inFmt.date(from: iso)
     }
 
     private func codeTypeTitle(for codeType: String) -> String {
@@ -470,6 +507,52 @@ struct UnitDetailView: View {
         return .primary
     }
 
+    private func deadlineProgress(frozenAt: String, dueDate: String) -> CGFloat {
+        guard
+            let start = parseISODate(frozenAt),
+            let end = parseISODate(dueDate)
+        else { return 0 }
+
+        let calendar = Calendar.current
+        let startDay = calendar.startOfDay(for: start)
+        let endDay = calendar.startOfDay(for: end)
+        let today = calendar.startOfDay(for: Date())
+        let total = endDay.timeIntervalSince(startDay)
+
+        guard total > 0 else { return today < endDay ? 1 : 0 }
+
+        if today >= endDay {
+            return 1
+        }
+
+        let remaining = endDay.timeIntervalSince(today)
+        return max(0, min(1, CGFloat(remaining / total)))
+    }
+
+    private func deadlineProgressColor(for progress: CGFloat, daysLeft: Int?) -> Color {
+        if let daysLeft {
+            if daysLeft <= 2 { return .red }
+            if daysLeft <= 7 { return .yellow }
+            return .green
+        }
+
+        if progress <= 0.18 { return .red }
+        if progress <= 0.38 { return .yellow }
+        return .green
+    }
+
+    private func deadlineGradientColors(for color: Color) -> [Color] {
+        [color.opacity(0.72), color]
+    }
+
+    private func deadlineDurationText(daysLeft: Int?) -> String {
+        guard let daysLeft else { return "Haltbarkeit" }
+        if daysLeft < 0 { return "\(abs(daysLeft)) Tage drüber" }
+        if daysLeft == 0 { return "Heute fällig" }
+        if daysLeft == 1 { return "noch 1 Tag haltbar" }
+        return "noch \(daysLeft) Tage haltbar"
+    }
+
     private func quantityLabel(for unit: FreezerUnit) -> String? {
         if let value = unit.quantity_value {
             let normalizedUnit = unit.quantity_unit?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
@@ -498,8 +581,7 @@ struct UnitDetailView: View {
                   let image = UIImage(data: data) else {
                 return
             }
-            cropImage = image
-            showCropper = true
+            try await vm.setPhoto(image)
         } catch {
             vm.errorMessage = AppError.message(for: error)
         }

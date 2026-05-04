@@ -15,6 +15,17 @@ struct InventoryRepository {
         let photo_path: String?
     }
 
+    private struct CodeLookupRow: Decodable {
+        let id: UUID
+        let code_type: String
+        let status: String?
+        let consumed_at: String?
+    }
+
+    private struct InsertedIDRow: Decodable {
+        let id: UUID
+    }
+
     // MARK: - Fetch (active inventory)
     func fetchUnitsDisplay() async throws -> [UnitDisplayRow] {
         let rows: [UnitDisplayRow] = try await client
@@ -236,6 +247,145 @@ struct InventoryRepository {
             .update(Update(photo_path: photoPath))
             .eq("id", value: id.uuidString)
             .execute()
+    }
+
+    func fetchActiveCode128Unit(codeValue: String) async throws -> UnitDisplayRow? {
+        let rows: [CodeLookupRow] = try await client
+            .from("freezer_units")
+            .select("id, code_type, status, consumed_at")
+            .eq("status", value: "active")
+            .eq("code_value", value: codeValue)
+            .execute()
+            .value
+
+        guard let match = rows.first(where: { $0.code_type.uppercased().contains("128") }) else {
+            return nil
+        }
+
+        return try await fetchUnitDisplay(id: match.id)
+    }
+
+    func fetchReusableCode128UnitID(codeValue: String) async throws -> UUID? {
+        let rows: [CodeLookupRow] = try await client
+            .from("freezer_units")
+            .select("id, code_type, status, consumed_at")
+            .eq("code_value", value: codeValue)
+            .order("consumed_at", ascending: false)
+            .execute()
+            .value
+
+        return rows.first(where: {
+            $0.code_type.uppercased().contains("128") && ($0.status?.lowercased() != "active")
+        })?.id
+    }
+
+    func createCode128Unit(
+        codeValue: String,
+        reusingUnitID: UUID?,
+        nameOverride: String?,
+        frozenAt: String?,
+        quantityValue: Int?,
+        quantityUnit: String?,
+        categoryId: UUID?,
+        locationId: UUID,
+        note: String?
+    ) async throws -> UUID {
+        if let reusingUnitID {
+            struct Reactivate: Encodable {
+                let code_type: String
+                let code_value: String
+                let product_ean: String?
+                let name_override: String?
+                let category_id: UUID?
+                let location_id: UUID
+                let frozen_at: String?
+                let best_before: String?
+                let weight_g: Int?
+                let quantity_value: Int?
+                let quantity_unit: String?
+                let note: String?
+                let photo_path: String?
+                let status: String
+                let consumed_at: String?
+                let attention_reason: String?
+                let attention_since: String?
+            }
+
+            _ = try await client
+                .from("freezer_units")
+                .update(
+                    Reactivate(
+                        code_type: "CODE128",
+                        code_value: codeValue,
+                        product_ean: nil,
+                        name_override: nameOverride,
+                        category_id: categoryId,
+                        location_id: locationId,
+                        frozen_at: frozenAt,
+                        best_before: nil,
+                        weight_g: quantityUnit == "g" ? quantityValue : nil,
+                        quantity_value: quantityValue,
+                        quantity_unit: quantityUnit,
+                        note: note,
+                        photo_path: nil,
+                        status: "active",
+                        consumed_at: nil,
+                        attention_reason: nil,
+                        attention_since: nil
+                    )
+                )
+                .eq("id", value: reusingUnitID.uuidString)
+                .execute()
+
+            return reusingUnitID
+        }
+
+        struct Insert: Encodable {
+            let code_type: String
+            let code_value: String
+            let product_ean: String?
+            let name_override: String?
+            let category_id: UUID?
+            let location_id: UUID
+            let frozen_at: String?
+            let weight_g: Int?
+            let quantity_value: Int?
+            let quantity_unit: String?
+            let note: String?
+            let status: String
+        }
+
+        let rows: [InsertedIDRow] = try await client
+            .from("freezer_units")
+            .insert(
+                Insert(
+                    code_type: "CODE128",
+                    code_value: codeValue,
+                    product_ean: nil,
+                    name_override: nameOverride,
+                    category_id: categoryId,
+                    location_id: locationId,
+                    frozen_at: frozenAt,
+                    weight_g: quantityUnit == "g" ? quantityValue : nil,
+                    quantity_value: quantityValue,
+                    quantity_unit: quantityUnit,
+                    note: note,
+                    status: "active"
+                )
+            )
+            .select("id")
+            .execute()
+            .value
+
+        guard let id = rows.first?.id else {
+            throw NSError(
+                domain: "CreateUnit",
+                code: 500,
+                userInfo: [NSLocalizedDescriptionKey: "Der neue Eintrag konnte nicht angelegt werden."]
+            )
+        }
+
+        return id
     }
     
     func fetchUnitsByEAN(_ ean: String) async throws -> [UnitDisplayRow] {

@@ -30,13 +30,13 @@ struct EditUnitView: View {
     @State private var isLoadingReferenceData = false
     @State private var didPrefill = false
     @State private var nameOverride: String = ""
-    @State private var hasFrozenAt = false
     @State private var frozenAtDate = Date()
     @State private var quantityText: String = ""
     @State private var quantityUnit: QuantityUnit = .grams
     @State private var selectedCategoryID: UUID?
     @State private var selectedLocationID: UUID?
     @State private var note: String = ""
+    @State private var alertTitle = "Speichern fehlgeschlagen"
     @State private var alertMessage: String?
 
     var body: some View {
@@ -91,16 +91,12 @@ struct EditUnitView: View {
                 }
 
                 Section("Eingelegt am") {
-                    Toggle("Datum gesetzt", isOn: $hasFrozenAt)
-
-                    if hasFrozenAt {
-                        DatePicker(
-                            "Datum",
-                            selection: $frozenAtDate,
-                            displayedComponents: .date
-                        )
-                        .datePickerStyle(.graphical)
-                    }
+                    DatePicker(
+                        "Datum",
+                        selection: $frozenAtDate,
+                        displayedComponents: .date
+                    )
+                    .datePickerStyle(.graphical)
                 }
 
                 Section("Menge") {
@@ -129,6 +125,8 @@ struct EditUnitView: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Speichern") {
+                        guard validateRequiredFields() else { return }
+
                         Task {
                             let quantity = Int(quantityText.trimmingCharacters(in: .whitespacesAndNewlines))
                             let name = nameOverride.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -137,7 +135,7 @@ struct EditUnitView: View {
                             do {
                                 try await vm.saveEdits(
                                     nameOverride: name.isEmpty ? nil : name,
-                                    frozenAt: hasFrozenAt ? isoDateString(from: frozenAtDate) : nil,
+                                    frozenAt: isoDateString(from: frozenAtDate),
                                     quantityValue: quantity,
                                     quantityUnit: quantity == nil ? nil : quantityUnit.rawValue,
                                     categoryId: selectedCategoryID,
@@ -146,11 +144,12 @@ struct EditUnitView: View {
                                 )
                                 dismiss()
                             } catch {
+                                alertTitle = "Speichern fehlgeschlagen"
                                 alertMessage = AppError.message(for: error)
                             }
                         }
                     }
-                    .disabled(isLoadingReferenceData || selectedLocationID == nil)
+                    .disabled(isLoadingReferenceData)
                 }
             }
             .onAppear {
@@ -158,10 +157,8 @@ struct EditUnitView: View {
                 didPrefill = true
                 nameOverride = vm.editableName
                 if let frozen = vm.unit?.frozen_at, let parsedDate = parseISODate(frozen) {
-                    hasFrozenAt = true
                     frozenAtDate = parsedDate
                 } else {
-                    hasFrozenAt = false
                     frozenAtDate = Date()
                 }
                 quantityText = vm.editableQuantityValue
@@ -173,7 +170,7 @@ struct EditUnitView: View {
             .task {
                 await loadReferenceData()
             }
-            .alert("Speichern fehlgeschlagen", isPresented: editErrorIsPresented) {
+            .alert(alertTitle, isPresented: editErrorIsPresented) {
                 Button("OK", role: .cancel) {
                     alertMessage = nil
                 }
@@ -210,6 +207,30 @@ struct EditUnitView: View {
         } catch {
             alertMessage = AppError.message(for: error)
         }
+    }
+
+    private func validateRequiredFields() -> Bool {
+        let name = nameOverride.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !name.isEmpty else {
+            alertTitle = "Unvollständig"
+            alertMessage = "Bitte einen Titel eingeben."
+            return false
+        }
+
+        guard selectedCategoryID != nil else {
+            alertTitle = "Unvollständig"
+            alertMessage = "Bitte eine Kategorie auswählen."
+            return false
+        }
+
+        guard selectedLocationID != nil else {
+            alertTitle = "Unvollständig"
+            alertMessage = "Bitte einen Ort auswählen."
+            return false
+        }
+
+        return true
     }
 
     private var selectedCategoryName: String {
