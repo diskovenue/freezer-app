@@ -11,6 +11,10 @@ import Supabase
 struct InventoryRepository {
     private let client: SupabaseClient = SupabaseConfig.client
 
+    private struct PhotoPathRow: Decodable {
+        let photo_path: String?
+    }
+
     // MARK: - Fetch (active inventory)
     func fetchUnitsDisplay() async throws -> [UnitDisplayRow] {
         let rows: [UnitDisplayRow] = try await client
@@ -65,19 +69,22 @@ struct InventoryRepository {
     }
 
     // MARK: - Mutations
-    func consumeUnit(id: UUID) async throws {
+    func consumeUnit(id: UUID) async throws -> String? {
         struct Update: Encodable {
             let status: String
             let consumed_at: String
         }
 
         let iso = ISO8601DateFormatter().string(from: Date())
+        let photoPath = try await fetchPhotoPath(id: id)
 
         _ = try await client
             .from("freezer_units")
             .update(Update(status: "consumed", consumed_at: iso))
             .eq("id", value: id.uuidString)
             .execute()
+
+        return photoPath
     }
     
     func restoreUnit(id: UUID) async throws {
@@ -98,6 +105,18 @@ struct InventoryRepository {
             ))
             .eq("id", value: id.uuidString)
             .execute()
+    }
+
+    func fetchPhotoPath(id: UUID) async throws -> String? {
+        let rows: [PhotoPathRow] = try await client
+            .from("freezer_units")
+            .select("photo_path")
+            .eq("id", value: id.uuidString)
+            .limit(1)
+            .execute()
+            .value
+
+        return rows.first?.photo_path
     }
     
     func fetchUnit(id: UUID) async throws -> FreezerUnit {
@@ -203,6 +222,18 @@ struct InventoryRepository {
                 location_id: locationId,
                 note: note
             ))
+            .eq("id", value: id.uuidString)
+            .execute()
+    }
+
+    func updateUnitPhotoPath(id: UUID, photoPath: String?) async throws {
+        struct Update: Encodable {
+            let photo_path: String?
+        }
+
+        _ = try await client
+            .from("freezer_units")
+            .update(Update(photo_path: photoPath))
             .eq("id", value: id.uuidString)
             .execute()
     }

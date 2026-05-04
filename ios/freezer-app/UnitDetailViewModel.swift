@@ -14,8 +14,11 @@ final class UnitDetailViewModel: ObservableObject {
     @Published var unit: FreezerUnit?
     @Published var displayUnit: UnitDisplayRow?
     @Published var isLoading = false
+    @Published var isPhotoLoading = false
+    @Published var isPhotoUpdating = false
     @Published var errorMessage: String?
     @Published var undoItem: UndoItem?
+    @Published var photoImage: UIImage?
 
     private let repo = InventoryRepository()
     private let unitId: UUID
@@ -39,19 +42,33 @@ final class UnitDetailViewModel: ObservableObject {
         do {
             async let unitRequest = repo.fetchUnit(id: unitId)
             async let displayUnitRequest = repo.fetchUnitDisplay(id: unitId)
-            unit = try await unitRequest
-            displayUnit = try await displayUnitRequest
+            let loadedUnit = try await unitRequest
+            let loadedDisplayUnit = try await displayUnitRequest
+
+            let loadedPhoto: UIImage?
+            if let path = loadedUnit.photo_path, !path.isEmpty {
+                loadedPhoto = try? await UnitPhotoStore.shared.image(for: path)
+            } else {
+                loadedPhoto = nil
+            }
+
+            unit = loadedUnit
+            displayUnit = loadedDisplayUnit
+            photoImage = loadedPhoto
         } catch {
             errorMessage = AppError.message(for: error)
         }
     }
 
     func consume() async throws {
-        try await repo.consumeUnit(id: unitId)
+        let photoPath = try await repo.consumeUnit(id: unitId)
         let title = unit?.name_override?.isEmpty == false ? unit?.name_override : nil
 
         withAnimation(.snappy(duration: 0.28, extraBounce: 0)) {
             undoItem = UndoItem(id: unitId, title: title ?? "Entnommen")
+        }
+        if let photoPath {
+            PendingPhotoDeletionStore.shared.scheduleDeletion(for: unitId, path: photoPath)
         }
         notifyInventoryDataChanged()
         NotificationCenter.default.post(
@@ -78,6 +95,7 @@ final class UnitDetailViewModel: ObservableObject {
         guard let undo = undoItem else { return }
 
         try await repo.restoreUnit(id: undo.id)
+        PendingPhotoDeletionStore.shared.cancelDeletion(for: undo.id)
         withAnimation(.snappy(duration: 0.28, extraBounce: 0)) {
             undoItem = nil
         }
@@ -113,7 +131,63 @@ final class UnitDetailViewModel: ObservableObject {
             unit = updatedUnit
             displayUnit = updatedDisplayUnit
         }
+        await loadPhotoIfNeeded(force: true)
         notifyInventoryDataChanged()
+    }
+
+    func setPhoto(_ image: UIImage) async throws {
+        guard !isPhotoUpdating else { return }
+        isPhotoUpdating = true
+        defer { isPhotoUpdating = false }
+
+        let previousPath = unit?.photo_path
+        let newPath = try await UnitPhotoStore.shared.uploadImage(image, for: unitId)
+
+        do {
+            try await repo.updateUnitPhotoPath(id: unitId, photoPath: newPath)
+        } catch {
+            await UnitPhotoStore.shared.deleteImage(at: newPath)
+            throw error
+        }
+
+        if let previousPath, previousPath != newPath {
+            await UnitPhotoStore.shared.deleteImage(at: previousPath)
+        }
+
+        unit = try await repo.fetchUnit(id: unitId)
+        photoImage = image
+        notifyInventoryDataChanged()
+    }
+
+    func removePhoto() async throws {
+        guard let photoPath = unit?.photo_path, !photoPath.isEmpty, !isPhotoUpdating else { return }
+        isPhotoUpdating = true
+        defer { isPhotoUpdating = false }
+
+        try await repo.updateUnitPhotoPath(id: unitId, photoPath: nil)
+        await UnitPhotoStore.shared.deleteImage(at: photoPath)
+        unit = try await repo.fetchUnit(id: unitId)
+        photoImage = nil
+        notifyInventoryDataChanged()
+    }
+
+    func loadPhotoIfNeeded(force: Bool = false) async {
+        guard let path = unit?.photo_path, !path.isEmpty else {
+            photoImage = nil
+            return
+        }
+        if photoImage != nil, !force {
+            return
+        }
+
+        isPhotoLoading = true
+        defer { isPhotoLoading = false }
+
+        do {
+            photoImage = try await UnitPhotoStore.shared.image(for: path)
+        } catch {
+            photoImage = nil
+        }
     }
 
     private func notifyInventoryDataChanged() {

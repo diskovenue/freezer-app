@@ -28,6 +28,7 @@ struct freezer_appApp: App {
 
 struct RootView: View {
     @EnvironmentObject var auth: AuthViewModel
+    @EnvironmentObject var navigation: AppNavigationState
 
     var body: some View {
         ZStack {
@@ -48,10 +49,14 @@ struct RootView: View {
         .animation(.easeInOut(duration: 0.28), value: auth.session != nil)
         .task {
             await auth.loadSession()
+            if auth.session != nil {
+                navigation.selectedTab = .inventory
+            }
             await PushRegistration.syncStoredTokenIfPossible()
         }
         .onChange(of: auth.session?.user.id) { _, newValue in
             guard newValue != nil else { return }
+            navigation.selectedTab = .inventory
             Task {
                 await PushRegistration.syncStoredTokenIfPossible()
             }

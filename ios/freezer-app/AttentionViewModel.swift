@@ -83,7 +83,10 @@ final class AttentionViewModel: ObservableObject {
         }
 
         do {
-            try await repo.consumeUnit(id: id)
+            let photoPath = try await repo.consumeUnit(id: id)
+            if let photoPath {
+                PendingPhotoDeletionStore.shared.scheduleDeletion(for: id, path: photoPath)
+            }
             try? await Task.sleep(nanoseconds: 280_000_000)
             let updatedItems = try await repo.fetchAttention()
             withTransaction(Transaction(animation: nil)) {
@@ -109,6 +112,7 @@ final class AttentionViewModel: ObservableObject {
 
         do {
             try await repo.restoreUnit(id: undo.id)
+            PendingPhotoDeletionStore.shared.cancelDeletion(for: undo.id)
             let updatedItems = try await repo.fetchAttention()
 
             withAnimation(.snappy(duration: 0.28, extraBounce: 0)) {

@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import PhotosUI
 
 struct UnitDetailView: View {
     let unitId: UUID
@@ -15,6 +16,13 @@ struct UnitDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var vm: UnitDetailViewModel
     @State private var showEdit = false
+    @State private var showPhotoSourceDialog = false
+    @State private var showCamera = false
+    @State private var showPhotoLibrary = false
+    @State private var showCropper = false
+    @State private var showFullscreenPhoto = false
+    @State private var selectedPhotoItem: PhotosPickerItem?
+    @State private var cropImage: UIImage?
 
     init(unitId: UUID, displayName: String?, onConsumeClose: (() -> Void)? = nil) {
         self.unitId = unitId
@@ -61,6 +69,79 @@ struct UnitDetailView: View {
             .task {
                 await vm.load()
             }
+            .sheet(isPresented: $showPhotoSourceDialog) {
+                PhotoActionsSheet(
+                    hasPhoto: vm.photoImage != nil,
+                    isBusy: vm.isPhotoUpdating,
+                    onCamera: {
+                        showPhotoSourceDialog = false
+                        showCamera = true
+                    },
+                    onLibrary: {
+                        showPhotoSourceDialog = false
+                        showPhotoLibrary = true
+                    },
+                    onDelete: {
+                        showPhotoSourceDialog = false
+                        Task {
+                            do {
+                                try await vm.removePhoto()
+                            } catch {
+                                vm.errorMessage = AppError.message(for: error)
+                            }
+                        }
+                    }
+                )
+                .presentationDetents(vm.photoImage == nil ? [.height(185)] : [.height(265)])
+                .presentationDragIndicator(.visible)
+                .presentationCornerRadius(28)
+                .presentationBackground(Color(.systemGroupedBackground))
+            }
+            .photosPicker(
+                isPresented: $showPhotoLibrary,
+                selection: $selectedPhotoItem,
+                matching: .images,
+                preferredItemEncoding: .automatic
+            )
+            .onChange(of: selectedPhotoItem) { _, newValue in
+                guard let newValue else { return }
+                Task {
+                    await loadSelectedPhotoItem(newValue)
+                }
+            }
+            .fullScreenCover(isPresented: $showCamera) {
+                CameraImagePicker { image in
+                    cropImage = image
+                    showCropper = true
+                }
+            }
+            .fullScreenCover(isPresented: $showCropper) {
+                if let image = cropImage {
+                    PhotoCropView(
+                        image: image,
+                        onCancel: {
+                            cropImage = nil
+                            showCropper = false
+                        },
+                        onComplete: { croppedImage in
+                            cropImage = nil
+                            showCropper = false
+                            Task {
+                                do {
+                                    try await vm.setPhoto(croppedImage)
+                                } catch {
+                                    vm.errorMessage = AppError.message(for: error)
+                                }
+                            }
+                        }
+                    )
+                }
+            }
+            .fullScreenCover(isPresented: $showFullscreenPhoto) {
+                if let image = vm.photoImage {
+                    PhotoFullscreenView(image: image)
+                }
+            }
             .sheet(isPresented: $showEdit) {
                 EditUnitView(vm: vm)
             }
@@ -91,8 +172,8 @@ struct UnitDetailView: View {
     @ViewBuilder
     private func detailContent(_ unit: FreezerUnit) -> some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                headerCard(unit)
+            VStack(alignment: .leading, spacing: 14) {
+                titleBlock
 
                 if let displayUnit = vm.displayUnit {
                     detailCard("Übersicht") {
@@ -143,6 +224,8 @@ struct UnitDetailView: View {
                     }
                 }
 
+                photoCard
+
                 Button {
                     AppHaptics.swipeAction()
                     Task {
@@ -179,37 +262,105 @@ struct UnitDetailView: View {
         .background(Color(.systemGroupedBackground))
     }
 
-    private func headerCard(_ unit: FreezerUnit) -> some View {
-        HStack(alignment: .center, spacing: 14) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .fill(Color.accentColor.opacity(0.12))
+    private var titleBlock: some View {
+        Text(vm.resolvedDisplayName ?? "Unbenannt")
+            .font(.system(size: 31, weight: .bold, design: .default))
+            .foregroundStyle(.primary)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 4)
+    }
 
-                Image(systemName: unit.photo_path == nil ? "snowflake" : "photo")
-                    .font(.system(size: 26, weight: .semibold))
-                    .foregroundStyle(Color.accentColor)
-            }
-            .frame(width: 62, height: 62)
+    private var photoCard: some View {
+        Group {
+            if vm.photoImage == nil {
+                Button {
+                    withAnimation(.spring(response: 0.34, dampingFraction: 0.9)) {
+                        showPhotoSourceDialog = true
+                    }
+                } label: {
+                    VStack(spacing: 14) {
+                        Image(systemName: "photo.badge.plus")
+                            .font(.system(size: 22, weight: .medium))
+                            .foregroundStyle(Color.accentColor)
+                            .frame(width: 52, height: 52)
+                            .background(
+                                Circle()
+                                    .fill(Color.accentColor.opacity(0.12))
+                            )
 
-            VStack(alignment: .leading, spacing: 6) {
-                Text(vm.resolvedDisplayName ?? "Unbenannt")
-                    .font(.title3.weight(.semibold))
-                    .foregroundStyle(.primary)
+                        Text("Foto hinzufügen")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(Color.accentColor)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 26)
+                    .background(
+                        RoundedRectangle(cornerRadius: 22, style: .continuous)
+                            .fill(Color(.secondarySystemGroupedBackground))
+                    )
+                }
+                .buttonStyle(.plain)
+                .disabled(vm.isPhotoUpdating)
+            } else {
+                ZStack(alignment: .bottomLeading) {
+                    RoundedRectangle(cornerRadius: 28, style: .continuous)
+                        .fill(Color(.secondarySystemGroupedBackground))
 
-                if unit.photo_path == nil {
-                    Text("Kein Foto")
-                        .font(.footnote.weight(.medium))
-                        .foregroundStyle(.secondary)
+                    if let image = vm.photoImage {
+                        Image(uiImage: image)
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 228)
+                            .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+                            .overlay {
+                                LinearGradient(
+                                    colors: [.black.opacity(0.0), .black.opacity(0.12), .black.opacity(0.5)],
+                                    startPoint: .top,
+                                    endPoint: .bottom
+                                )
+                                .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+                            }
+                    }
+
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack(spacing: 10) {
+                            Button {
+                                withAnimation(.spring(response: 0.34, dampingFraction: 0.9)) {
+                                    showPhotoSourceDialog = true
+                                }
+                            } label: {
+                                Label("Ändern", systemImage: "camera.fill")
+                                    .font(.subheadline.weight(.semibold))
+                                    .padding(.horizontal, 14)
+                                    .padding(.vertical, 10)
+                                    .background(.ultraThinMaterial, in: Capsule())
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundStyle(.white)
+                            .disabled(vm.isPhotoUpdating)
+                        }
+                    }
+                    .padding(18)
+
+                    if vm.isPhotoLoading || vm.isPhotoUpdating {
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 28, style: .continuous)
+                                .fill(.black.opacity(0.18))
+                            ProgressView()
+                                .controlSize(.large)
+                                .tint(.white)
+                        }
+                    }
+                }
+                .frame(height: 228)
+                .contentShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+                .onTapGesture {
+                    showFullscreenPhoto = true
                 }
             }
-
-            Spacer(minLength: 0)
         }
-        .padding(18)
-        .background(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .fill(Color(.secondarySystemGroupedBackground))
-        )
     }
 
     private func detailCard<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
@@ -338,6 +489,107 @@ struct UnitDetailView: View {
     private func quantityIcon(for unit: FreezerUnit) -> String {
         let normalizedUnit = unit.quantity_unit?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         return normalizedUnit == "portionen" ? "fork.knife" : "scalemass"
+    }
+
+    private func loadSelectedPhotoItem(_ item: PhotosPickerItem) async {
+        defer { selectedPhotoItem = nil }
+        do {
+            guard let data = try await item.loadTransferable(type: Data.self),
+                  let image = UIImage(data: data) else {
+                return
+            }
+            cropImage = image
+            showCropper = true
+        } catch {
+            vm.errorMessage = AppError.message(for: error)
+        }
+    }
+}
+
+private struct PhotoActionsSheet: View {
+    let hasPhoto: Bool
+    let isBusy: Bool
+    let onCamera: () -> Void
+    let onLibrary: () -> Void
+    let onDelete: () -> Void
+
+    var body: some View {
+        GeometryReader { proxy in
+            VStack(spacing: 12) {
+                actionButton(
+                    title: "Foto aufnehmen",
+                    subtitle: "Direkt mit der Kamera hinzufügen",
+                    systemImage: "camera.fill",
+                    tint: .accentColor,
+                    action: onCamera
+                )
+
+                actionButton(
+                    title: "Aus Fotos wählen",
+                    subtitle: "Ein vorhandenes Bild auswählen",
+                    systemImage: "photo.on.rectangle.angled",
+                    tint: .accentColor,
+                    action: onLibrary
+                )
+
+                if hasPhoto {
+                    actionButton(
+                        title: "Foto löschen",
+                        subtitle: "Das aktuelle Bild entfernen",
+                        systemImage: "trash.fill",
+                        tint: .red,
+                        action: onDelete
+                    )
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 25)
+            .padding(.bottom, max(proxy.safeAreaInsets.bottom, 22))
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .background(Color(.systemGroupedBackground).ignoresSafeArea())
+        }
+        .interactiveDismissDisabled(isBusy)
+    }
+
+    private func actionButton(
+        title: String,
+        subtitle: String,
+        systemImage: String,
+        tint: Color,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 14) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(tint.opacity(0.12))
+                    Image(systemName: systemImage)
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(tint)
+                }
+                .frame(width: 48, height: 48)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(title)
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(.primary)
+                    Text(subtitle)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 14)
+            .background(
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .fill(Color(.secondarySystemGroupedBackground))
+            )
+        }
+        .buttonStyle(.plain)
+        .disabled(isBusy)
     }
 }
 

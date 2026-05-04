@@ -2,6 +2,15 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>CFBundleLocalizations</key>
+	<array>
+		<string>de</string>
+		<string>en</string>
+	</array>
+	<key>NSCameraUsageDescription</key>
+	<string>Die App benötigt Zugriff auf die Kamera, um Fotos für Gefriereinträge aufzunehmen.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Die App benötigt Zugriff auf deine Fotos, damit du Bilder für Gefriereinträge auswählen kannst.</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>remote-notification</string>

@@ -119,6 +119,7 @@ struct EditUnitView: View {
                     TextField("Optional", text: $note, axis: .vertical)
                         .lineLimit(3...8)
                 }
+
             }
             .navigationTitle("Bearbeiten")
             .navigationBarTitleDisplayMode(.inline)
@@ -256,6 +257,7 @@ struct EditUnitView: View {
             }
         )
     }
+
 }
 
 private struct CategorySelectionView: View {
