@@ -17,7 +17,6 @@ struct InventoryGroupDetailView: View {
     @State private var selectedUnit: SelectedUnit?
     @State private var hiddenUnitIDs: Set<UUID> = []
     @State private var removingUnitIDs: Set<UUID> = []
-    @State private var shouldDismissAfterConsume = false
 
     init(ean: String, title: String, onConsumeClose: (() -> Void)? = nil) {
         self.ean = ean
@@ -58,9 +57,16 @@ struct InventoryGroupDetailView: View {
                             }
                             Task {
                                 try? await Task.sleep(nanoseconds: 300_000_000)
-                                await vm.consume(id: itemID, title: itemTitle)
+                                let didConsume = await vm.consume(id: itemID, title: itemTitle)
+                                guard didConsume else { return }
+                                await MainActor.run {
+                                    if let onConsumeClose {
+                                        onConsumeClose()
+                                    } else {
+                                        dismiss()
+                                    }
+                                }
                             }
-                            shouldDismissAfterConsume = true
                         } label: {
                             Label("Entnehmen", systemImage: "checkmark")
                         }
@@ -78,39 +84,8 @@ struct InventoryGroupDetailView: View {
             .animation(.snappy(duration: 0.28, extraBounce: 0), value: vm.items.map(\.id))
             .animation(.snappy(duration: 0.18, extraBounce: 0), value: removingUnitIDs)
             .task { await vm.load() }
-            .onChange(of: shouldDismissAfterConsume) { _, newValue in
-                guard newValue else { return }
-                shouldDismissAfterConsume = false
-                if let onConsumeClose {
-                    onConsumeClose()
-                } else {
-                    dismiss()
-                }
-            }
-            .overlay(alignment: .bottom) {
-                if let undo = vm.undoItem {
-                    UndoBanner(
-                        title: "\(undo.title) entnommen",
-                        duration: 5,
-                        onUndo: {
-                            AppHaptics.selection()
-                            Task { await vm.undoLastConsume() }
-                        },
-                        onDismiss: { vm.undoItem = nil }
-                    )
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-                    .animation(.easeInOut(duration: 0.2), value: vm.undoItem?.id)
-                }
-            }
             .onReceive(NotificationCenter.default.publisher(for: .inventoryDataDidChange)) { _ in
                 Task { await vm.load() }
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .unitDetailDidConsume)) { notification in
-                guard
-                    let id = notification.userInfo?[AppNotificationKey.unitID] as? UUID,
-                    let title = notification.userInfo?[AppNotificationKey.title] as? String
-                else { return }
-                vm.presentUndoItem(id: id, title: title)
             }
         }
         .sheet(item: $selectedUnit) { sel in

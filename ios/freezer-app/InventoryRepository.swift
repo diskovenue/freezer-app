@@ -26,6 +26,11 @@ struct InventoryRepository {
         let id: UUID
     }
 
+    private struct ProductKeyInsert: Encodable {
+        let ean: String
+        let name: String
+    }
+
     // MARK: - Fetch (active inventory)
     func fetchUnitsDisplay() async throws -> [UnitDisplayRow] {
         let rows: [UnitDisplayRow] = try await client
@@ -411,5 +416,78 @@ struct InventoryRepository {
             .value
 
         return rows
+    }
+
+    func createEANUnit(
+        ean: String,
+        nameOverride: String?,
+        frozenAt: String?,
+        quantityValue: Int?,
+        quantityUnit: String?,
+        categoryId: UUID?,
+        locationId: UUID,
+        note: String?
+    ) async throws -> UUID {
+        let trimmedName = nameOverride?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let productName = trimmedName.isEmpty ? ean : trimmedName
+        try await ensureProductExists(ean: ean, name: productName)
+
+        struct Insert: Encodable {
+            let code_type: String
+            let code_value: String
+            let product_ean: String
+            let name_override: String?
+            let category_id: UUID?
+            let location_id: UUID
+            let frozen_at: String?
+            let weight_g: Int?
+            let quantity_value: Int?
+            let quantity_unit: String?
+            let note: String?
+            let status: String
+        }
+
+        let rows: [InsertedIDRow] = try await client
+            .from("freezer_units")
+            .insert(
+                Insert(
+                    code_type: "EAN",
+                    code_value: ean,
+                    product_ean: ean,
+                    name_override: nameOverride,
+                    category_id: categoryId,
+                    location_id: locationId,
+                    frozen_at: frozenAt,
+                    weight_g: quantityUnit == "g" ? quantityValue : nil,
+                    quantity_value: quantityValue,
+                    quantity_unit: quantityUnit,
+                    note: note,
+                    status: "active"
+                )
+            )
+            .select("id")
+            .execute()
+            .value
+
+        guard let id = rows.first?.id else {
+            throw NSError(
+                domain: "CreateEANUnit",
+                code: 500,
+                userInfo: [NSLocalizedDescriptionKey: "Der neue Eintrag konnte nicht angelegt werden."]
+            )
+        }
+
+        return id
+    }
+
+    private func ensureProductExists(ean: String, name: String) async throws {
+        _ = try await client
+            .from("products")
+            .upsert(
+                ProductKeyInsert(ean: ean, name: name),
+                onConflict: "ean",
+                ignoreDuplicates: true
+            )
+            .execute()
     }
 }

@@ -17,6 +17,8 @@ struct UndoBanner: View {
     @State private var startDate = Date()
     @State private var now = Date()
     @State private var isVisible = true
+    @State private var settledDragOffset: CGFloat = 0
+    @GestureState private var dragOffset: CGSize = .zero
 
     private let timer = Timer.publish(every: 0.05, on: .main, in: .common).autoconnect()
 
@@ -65,15 +67,19 @@ struct UndoBanner: View {
                 .shadow(color: Color.black.opacity(0.12), radius: 18, x: 0, y: 8)
                 .padding(.horizontal, 16)
                 .padding(.bottom, 12)
+                .offset(y: max(0, dragOffset.height) + settledDragOffset)
+                .opacity(bannerOpacity)
                 .onAppear {
                     startDate = Date()
                     now = startDate
+                    settledDragOffset = 0
                 }
                 .onReceive(timer) { value in
                     // Timer nur laufen lassen solange sichtbar
                     guard isVisible else { return }
                     now = value
                 }
+                .gesture(dismissDragGesture)
             }
         }
     }
@@ -99,6 +105,30 @@ struct UndoBanner: View {
         }
         .frame(height: 3)
         .accessibilityLabel("Undo Countdown")
+    }
+
+    private var bannerOpacity: Double {
+        let progress = min(max((dragOffset.height + settledDragOffset) / 160, 0), 1)
+        return 1 - (progress * 0.35)
+    }
+
+    private var dismissDragGesture: some Gesture {
+        DragGesture(minimumDistance: 8)
+            .updating($dragOffset) { value, state, _ in
+                guard value.translation.height > 0 else { return }
+                guard abs(value.translation.height) > abs(value.translation.width) else { return }
+                state = value.translation
+            }
+            .onEnded { value in
+                guard value.translation.height > 70 || value.velocity.height > 900 else {
+                    settledDragOffset = 0
+                    return
+                }
+                settledDragOffset = max(0, value.translation.height)
+                dismissInstant {
+                    onDismiss()
+                }
+            }
     }
 
     // MARK: - Instant dismiss helper

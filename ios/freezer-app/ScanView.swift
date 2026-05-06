@@ -15,10 +15,23 @@ struct ScanView: View {
         let displayName: String?
     }
 
+    private struct PresentedGroup: Identifiable {
+        let id: String
+        let ean: String
+        let title: String
+    }
+
     private struct CreateCode128Draft: Identifiable {
         let id = UUID()
         let codeValue: String
         let reusableUnitID: UUID?
+    }
+
+    private struct CreateEANDraft: Identifiable {
+        let id = UUID()
+        let ean: String
+        let suggestedName: String?
+        let suggestedImage: UIImage?
     }
 
     private struct UndoItem: Identifiable {
@@ -35,7 +48,9 @@ struct ScanView: View {
     @State private var recognizedAlert: RecognizedCodeAlert?
     @State private var scannerMessage: String?
     @State private var presentedUnit: PresentedUnit?
+    @State private var presentedGroup: PresentedGroup?
     @State private var createDraft: CreateCode128Draft?
+    @State private var createEANDraft: CreateEANDraft?
     @State private var undoItem: UndoItem?
     @State private var isTorchOn = false
     @State private var zoomFactor: CGFloat = 1
@@ -43,6 +58,7 @@ struct ScanView: View {
     @State private var isResolvingScan = false
     @State private var isViewVisible = false
     private let inventoryRepository = InventoryRepository()
+    private let openFoodFactsService = OpenFoodFactsService()
 
     var body: some View {
         NavigationStack {
@@ -87,8 +103,18 @@ struct ScanView: View {
                     onConsumeClose: { presentedUnit = nil }
                 )
             }
+            .sheet(item: $presentedGroup) { group in
+                InventoryGroupDetailView(
+                    ean: group.ean,
+                    title: group.title,
+                    onConsumeClose: { presentedGroup = nil }
+                )
+            }
             .sheet(item: $createDraft) { draft in
                 createDraftSheet(for: draft)
+            }
+            .sheet(item: $createEANDraft) { draft in
+                createEANDraftSheet(for: draft)
             }
             .overlay(alignment: .bottom) { undoBannerOverlay }
         }
@@ -173,12 +199,8 @@ struct ScanView: View {
 
     private var scannerHint: some View {
         VStack(spacing: 10) {
-            Text("Barcode scannen")
-                .font(.headline)
-                .foregroundStyle(.white)
-
-            Text("Code 128 öffnet direkt den Eintrag oder die Anlagemaske.")
-                .font(.subheadline)
+            Text("Code128 oder EAN scannen")
+                .font(.subheadline.weight(.medium))
                 .foregroundStyle(.white.opacity(0.78))
                 .multilineTextAlignment(.center)
         }
@@ -194,6 +216,19 @@ struct ScanView: View {
             reusableUnitID: draft.reusableUnitID
         ) { createdUnitID, displayName in
             createDraft = nil
+            presentedUnit = PresentedUnit(id: createdUnitID, displayName: displayName)
+        }
+        .presentationDetents([.large])
+        .presentationContentInteraction(.scrolls)
+    }
+
+    private func createEANDraftSheet(for draft: CreateEANDraft) -> some View {
+        ScanCreateEANView(
+            ean: draft.ean,
+            suggestedName: draft.suggestedName,
+            suggestedImage: draft.suggestedImage
+        ) { createdUnitID, displayName in
+            createEANDraft = nil
             presentedUnit = PresentedUnit(id: createdUnitID, displayName: displayName)
         }
         .presentationDetents([.large])
@@ -233,7 +268,13 @@ struct ScanView: View {
     }
 
     private var isScannerPaused: Bool {
-        isResolvingScan || recognizedAlert != nil || scannerMessage != nil || presentedUnit != nil || createDraft != nil
+        isResolvingScan
+            || recognizedAlert != nil
+            || scannerMessage != nil
+            || presentedUnit != nil
+            || presentedGroup != nil
+            || createDraft != nil
+            || createEANDraft != nil
     }
 
     private var isTorchAvailable: Bool {
@@ -257,12 +298,7 @@ struct ScanView: View {
             case .code128:
                 await resolveCode128(payload.value)
             case .ean:
-                await MainActor.run {
-                    recognizedAlert = RecognizedCodeAlert(
-                        title: "EAN erkannt",
-                        message: payload.value
-                    )
-                }
+                await resolveEAN(payload.value)
             }
         }
     }
@@ -276,6 +312,35 @@ struct ScanView: View {
                 let reusableUnitID = try await inventoryRepository.fetchReusableCode128UnitID(codeValue: code)
                 createDraft = CreateCode128Draft(codeValue: code, reusableUnitID: reusableUnitID)
             }
+        } catch {
+            scannerMessage = AppError.message(for: error)
+        }
+    }
+
+    @MainActor
+    private func resolveEAN(_ code: String) async {
+        do {
+            let units = try await inventoryRepository.fetchUnitsByEAN(code)
+
+            if units.count == 1, let unit = units.first {
+                presentedUnit = PresentedUnit(id: unit.id, displayName: unit.display_name)
+                return
+            }
+
+            if units.count > 1 {
+                let title = units.first?.display_name?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+                    ? units.first?.display_name ?? "Unbenannt"
+                    : "Unbenannt"
+                presentedGroup = PresentedGroup(id: "EAN:\(code)", ean: code, title: title)
+                return
+            }
+
+            let productDraft = try await openFoodFactsService.fetchProduct(barcode: code)
+            createEANDraft = CreateEANDraft(
+                ean: code,
+                suggestedName: productDraft?.name,
+                suggestedImage: productDraft?.image
+            )
         } catch {
             scannerMessage = AppError.message(for: error)
         }
@@ -816,6 +881,386 @@ private struct ScanCreateCode128View: View {
         }
 
         return true
+    }
+
+    private var selectedCategoryName: String {
+        guard let selectedCategoryID,
+              let category = categories.first(where: { $0.id == selectedCategoryID }) else {
+            return "Keine Kategorie"
+        }
+
+        if let emoji = category.emoji, !emoji.isEmpty {
+            return "\(emoji) \(category.name)"
+        }
+        return category.name
+    }
+
+    private var selectedLocationName: String {
+        guard let selectedLocationID,
+              let location = locations.first(where: { $0.id == selectedLocationID }) else {
+            return "Ort wählen"
+        }
+        return location.name
+    }
+
+    private func selectionRow(title: String, value: String, showsMenuIndicator: Bool = false) -> some View {
+        HStack {
+            Text(title)
+                .foregroundStyle(.primary)
+            Spacer()
+            Text(value)
+                .foregroundStyle(.tertiary)
+            if showsMenuIndicator {
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+        }
+    }
+
+    private func isoDateString(from date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.string(from: date)
+    }
+
+    private var alertBinding: Binding<Bool> {
+        Binding(
+            get: { alertMessage != nil },
+            set: { newValue in
+                if !newValue {
+                    alertMessage = nil
+                }
+            }
+        )
+    }
+}
+
+private struct ScanCreateEANView: View {
+    private enum QuantityUnit: String, CaseIterable, Identifiable {
+        case grams = "g"
+        case portions = "portionen"
+
+        var id: String { rawValue }
+
+        var title: String {
+            switch self {
+            case .grams: "g"
+            case .portions: "Portionen"
+            }
+        }
+    }
+
+    let ean: String
+    let suggestedName: String?
+    let suggestedImage: UIImage?
+    let onCreated: (UUID, String?) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var categories: [CategoryRow] = []
+    @State private var locations: [LocationRow] = []
+    @State private var nameOverride: String
+    @State private var frozenAtDate = Date()
+    @State private var quantityText = ""
+    @State private var quantityUnit: QuantityUnit = .grams
+    @State private var selectedCategoryID: UUID?
+    @State private var selectedLocationID: UUID?
+    @State private var note = ""
+    @State private var alertTitle = "Speichern fehlgeschlagen"
+    @State private var alertMessage: String?
+    @State private var isLoadingReferenceData = false
+    @State private var isSaving = false
+
+    private let repo = InventoryRepository()
+    private let imageHeight: CGFloat = 192
+
+    init(
+        ean: String,
+        suggestedName: String?,
+        suggestedImage: UIImage?,
+        onCreated: @escaping (UUID, String?) -> Void
+    ) {
+        self.ean = ean
+        self.suggestedName = suggestedName
+        self.suggestedImage = suggestedImage
+        self.onCreated = onCreated
+        _nameOverride = State(initialValue: suggestedName ?? "")
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Code") {
+                    HStack(spacing: 12) {
+                        Text(ean)
+                            .font(.body.monospaced())
+                            .foregroundStyle(.primary)
+                            .textSelection(.enabled)
+
+                        Spacer(minLength: 12)
+
+                        ScanCodeTypeBadge(title: "EAN")
+                    }
+                }
+
+                Section {
+                    openFoodFactsStatusCard
+                        .listRowInsets(EdgeInsets(top: 12, leading: 16, bottom: 12, trailing: 16))
+                }
+
+                if suggestedName != nil || suggestedImage != nil {
+                    Section("Open Food Facts") {
+                        if let suggestedImage {
+                            VStack(alignment: .leading, spacing: 12) {
+                                ZStack {
+                                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                        .fill(Color(.secondarySystemGroupedBackground))
+
+                                    Image(uiImage: suggestedImage)
+                                        .resizable()
+                                        .aspectRatio(contentMode: .fit)
+                                        .frame(maxWidth: .infinity, maxHeight: imageHeight)
+                                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                                        .padding(10)
+                                }
+                                .frame(maxWidth: .infinity)
+                                .frame(height: imageHeight)
+
+                                Text("Produktbild wird beim Speichern direkt übernommen.")
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .listRowInsets(EdgeInsets(top: 12, leading: 16, bottom: 12, trailing: 16))
+                        }
+
+                        if let suggestedName, !suggestedName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            Label("Name wurde aus Open Food Facts vorausgefüllt.", systemImage: "sparkles")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+
+                Section("Bezeichnung") {
+                    TextField("Name", text: $nameOverride)
+                }
+
+                Section("Zuordnung") {
+                    NavigationLink {
+                        ScanCategorySelectionView(
+                            categories: categories,
+                            selectedCategoryID: $selectedCategoryID
+                        )
+                    } label: {
+                        selectionRow(title: "Kategorie", value: selectedCategoryName)
+                    }
+
+                    Menu {
+                        ForEach(locations) { location in
+                            Button {
+                                selectedLocationID = location.id
+                            } label: {
+                                if selectedLocationID == location.id {
+                                    Label(location.name, systemImage: "checkmark")
+                                } else {
+                                    Text(location.name)
+                                }
+                            }
+                        }
+                    } label: {
+                        selectionRow(title: "Ort", value: selectedLocationName, showsMenuIndicator: true)
+                    }
+                    .foregroundStyle(.primary)
+                }
+
+                Section("Eingelegt am") {
+                    DatePicker("Datum", selection: $frozenAtDate, displayedComponents: .date)
+                        .datePickerStyle(.graphical)
+                }
+
+                Section("Menge") {
+                    TextField(quantityUnit == .grams ? "z.B. 850" : "z.B. 3", text: $quantityText)
+                        .keyboardType(.numberPad)
+
+                    Picker("Einheit", selection: $quantityUnit) {
+                        ForEach(QuantityUnit.allCases) { unit in
+                            Text(unit.title).tag(unit)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                }
+
+                Section("Notiz") {
+                    TextField("Optional", text: $note, axis: .vertical)
+                        .lineLimit(3...8)
+                }
+            }
+            .scrollDismissesKeyboard(.interactively)
+            .navigationTitle("Neu anlegen")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Abbrechen") {
+                        dismiss()
+                    }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Speichern") {
+                        save()
+                    }
+                    .disabled(isLoadingReferenceData || isSaving)
+                }
+            }
+            .task {
+                await loadReferenceData()
+            }
+            .alert(alertTitle, isPresented: alertBinding) {
+                Button("OK", role: .cancel) {
+                    alertMessage = nil
+                }
+            } message: {
+                Text(alertMessage ?? "Bitte versuche es erneut.")
+            }
+        }
+    }
+
+    private func save() {
+        guard validateRequiredFields() else { return }
+        guard let selectedLocationID else { return }
+
+        Task {
+            isSaving = true
+            defer { isSaving = false }
+
+            let quantity = Int(quantityText.trimmingCharacters(in: .whitespacesAndNewlines))
+            let name = nameOverride.trimmingCharacters(in: .whitespacesAndNewlines)
+            let noteTrim = note.trimmingCharacters(in: .whitespacesAndNewlines)
+
+            do {
+                let newID = try await repo.createEANUnit(
+                    ean: ean,
+                    nameOverride: name.isEmpty ? nil : name,
+                    frozenAt: isoDateString(from: frozenAtDate),
+                    quantityValue: quantity,
+                    quantityUnit: quantity == nil ? nil : quantityUnit.rawValue,
+                    categoryId: selectedCategoryID,
+                    locationId: selectedLocationID,
+                    note: noteTrim.isEmpty ? nil : noteTrim
+                )
+
+                if let suggestedImage {
+                    let photoPath = try await UnitPhotoStore.shared.uploadImage(suggestedImage, for: newID)
+                    try await repo.updateUnitPhotoPath(id: newID, photoPath: photoPath)
+                }
+
+                onCreated(newID, name.isEmpty ? nil : name)
+            } catch {
+                alertTitle = "Speichern fehlgeschlagen"
+                alertMessage = AppError.message(for: error)
+            }
+        }
+    }
+
+    private func loadReferenceData() async {
+        guard categories.isEmpty, locations.isEmpty else { return }
+        isLoadingReferenceData = true
+        defer { isLoadingReferenceData = false }
+
+        do {
+            async let categoryRequest = CategoriesRepository().fetchCategories()
+            async let locationRequest = LocationsRepository().fetchLocations()
+            categories = try await categoryRequest
+            locations = try await locationRequest
+        } catch {
+            alertTitle = "Speichern fehlgeschlagen"
+            alertMessage = AppError.message(for: error)
+        }
+    }
+
+    private func validateRequiredFields() -> Bool {
+        let name = nameOverride.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !name.isEmpty else {
+            alertTitle = "Unvollständig"
+            alertMessage = "Bitte einen Titel eingeben."
+            return false
+        }
+
+        guard selectedCategoryID != nil else {
+            alertTitle = "Unvollständig"
+            alertMessage = "Bitte eine Kategorie auswählen."
+            return false
+        }
+
+        guard selectedLocationID != nil else {
+            alertTitle = "Unvollständig"
+            alertMessage = "Bitte einen Ort auswählen."
+            return false
+        }
+
+        return true
+    }
+
+    @ViewBuilder
+    private var openFoodFactsStatusCard: some View {
+        let hasName = suggestedName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+        let hasImage = suggestedImage != nil
+        let found = hasName || hasImage
+
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 12) {
+                Image(systemName: found ? "checkmark.seal.fill" : "questionmark.folder.fill")
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundStyle(found ? .green : .orange)
+                    .frame(width: 34, height: 34)
+                    .background(
+                        (found ? Color.green : Color.orange).opacity(0.14),
+                        in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    )
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(found ? "Produktdaten gefunden" : "Keine Produktdaten gefunden")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+
+                    Text(found
+                         ? "Vorhandene Informationen wurden direkt in die Anlage übernommen."
+                         : "Du kannst den Eintrag manuell anlegen. EAN bleibt bereits vorausgefüllt.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            HStack(spacing: 8) {
+                openFoodFactsPill(
+                    title: "Name",
+                    systemImage: hasName ? "checkmark" : "xmark.circle.fill",
+                    isActive: hasName
+                )
+
+                openFoodFactsPill(
+                    title: "Bild",
+                    systemImage: hasImage ? "checkmark" : "xmark.circle.fill",
+                    isActive: hasImage
+                )
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+    }
+
+    private func openFoodFactsPill(title: String, systemImage: String, isActive: Bool) -> some View {
+        Label(title, systemImage: systemImage)
+            .font(.footnote.weight(.semibold))
+            .foregroundStyle(isActive ? Color.green : Color.secondary)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .background(
+                (isActive ? Color.green : Color.secondary).opacity(isActive ? 0.12 : 0.10),
+                in: Capsule(style: .continuous)
+            )
     }
 
     private var selectedCategoryName: String {

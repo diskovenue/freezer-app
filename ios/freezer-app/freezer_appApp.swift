@@ -50,13 +50,15 @@ struct RootView: View {
         .task {
             await auth.loadSession()
             if auth.session != nil {
-                navigation.selectedTab = .inventory
+                navigation.consumePreferredLaunchTabIfNeeded()
+                navigation.resetToDefaultTabIfNeeded()
             }
             await PushRegistration.syncStoredTokenIfPossible()
         }
         .onChange(of: auth.session?.user.id) { _, newValue in
             guard newValue != nil else { return }
-            navigation.selectedTab = .inventory
+            navigation.consumePreferredLaunchTabIfNeeded()
+            navigation.resetToDefaultTabIfNeeded()
             Task {
                 await PushRegistration.syncStoredTokenIfPossible()
             }
