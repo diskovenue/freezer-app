@@ -29,14 +29,12 @@ final class AppNavigationState: ObservableObject {
         selectedTab = .attention
     }
 
-    func resetToDefaultTabIfNeeded() {
-        guard preferredLaunchTab == nil else { return }
-        selectedTab = .inventory
-    }
-
-    func consumePreferredLaunchTabIfNeeded() {
-        guard let preferredLaunchTab else { return }
-        selectedTab = preferredLaunchTab
-        self.preferredLaunchTab = nil
+    func selectInitialTab() {
+        if let preferredLaunchTab {
+            selectedTab = preferredLaunchTab
+            self.preferredLaunchTab = nil
+        } else {
+            selectedTab = .inventory
+        }
     }
 }
