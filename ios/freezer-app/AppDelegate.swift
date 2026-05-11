@@ -10,13 +10,47 @@ import UserNotifications
 import Supabase
 
 final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
+    private enum ShortcutItemType {
+        static let scan = "freezer-app.shortcut.scan"
+        static let attention = "freezer-app.shortcut.attention"
+    }
+
     func application(
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
         UNUserNotificationCenter.current().delegate = self
+        let remoteNotificationLaunchKey = UIApplication.LaunchOptionsKey(rawValue: "UIApplicationLaunchOptionsRemoteNotificationKey")
+        if launchOptions?[remoteNotificationLaunchKey] != nil {
+            Task { @MainActor in
+                AppNavigationState.shared.openAttentionTab()
+            }
+        }
         requestPushPermission(for: application)
         return true
+    }
+
+    func application(
+        _ application: UIApplication,
+        configurationForConnecting connectingSceneSession: UISceneSession,
+        options: UIScene.ConnectionOptions
+    ) -> UISceneConfiguration {
+        if let shortcutItem = options.shortcutItem {
+            handleShortcutItem(shortcutItem)
+        }
+
+        return UISceneConfiguration(
+            name: connectingSceneSession.configuration.name,
+            sessionRole: connectingSceneSession.role
+        )
+    }
+
+    func application(
+        _ application: UIApplication,
+        performActionFor shortcutItem: UIApplicationShortcutItem,
+        completionHandler: @escaping (Bool) -> Void
+    ) {
+        completionHandler(handleShortcutItem(shortcutItem))
     }
 
     private func requestPushPermission(for application: UIApplication) {
@@ -70,6 +104,22 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         await MainActor.run {
             AppNavigationState.shared.openAttentionTab()
         }
+    }
+
+    @discardableResult
+    private func handleShortcutItem(_ shortcutItem: UIApplicationShortcutItem) -> Bool {
+        Task { @MainActor in
+            switch shortcutItem.type {
+            case ShortcutItemType.scan:
+                AppNavigationState.shared.openScanTab()
+            case ShortcutItemType.attention:
+                AppNavigationState.shared.openAttentionTab()
+            default:
+                break
+            }
+        }
+
+        return shortcutItem.type == ShortcutItemType.scan || shortcutItem.type == ShortcutItemType.attention
     }
 }
 

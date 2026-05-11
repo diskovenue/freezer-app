@@ -32,6 +32,7 @@ struct ScanView: View {
         let ean: String
         let suggestedName: String?
         let suggestedImage: UIImage?
+        let categoryTags: [String]
     }
 
     private struct UndoItem: Identifiable {
@@ -226,7 +227,8 @@ struct ScanView: View {
         ScanCreateEANView(
             ean: draft.ean,
             suggestedName: draft.suggestedName,
-            suggestedImage: draft.suggestedImage
+            suggestedImage: draft.suggestedImage,
+            categoryTags: draft.categoryTags
         ) { createdUnitID, displayName in
             createEANDraft = nil
             presentedUnit = PresentedUnit(id: createdUnitID, displayName: displayName)
@@ -339,7 +341,8 @@ struct ScanView: View {
             createEANDraft = CreateEANDraft(
                 ean: code,
                 suggestedName: productDraft?.name,
-                suggestedImage: productDraft?.image
+                suggestedImage: productDraft?.image,
+                categoryTags: productDraft?.categoryTags ?? []
             )
         } catch {
             scannerMessage = AppError.message(for: error)
@@ -955,6 +958,7 @@ private struct ScanCreateEANView: View {
     let ean: String
     let suggestedName: String?
     let suggestedImage: UIImage?
+    let categoryTags: [String]
     let onCreated: (UUID, String?) -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -965,6 +969,7 @@ private struct ScanCreateEANView: View {
     @State private var quantityText = ""
     @State private var quantityUnit: QuantityUnit = .grams
     @State private var selectedCategoryID: UUID?
+    @State private var suggestedCategoryName: String?
     @State private var selectedLocationID: UUID?
     @State private var note = ""
     @State private var alertTitle = "Speichern fehlgeschlagen"
@@ -979,11 +984,13 @@ private struct ScanCreateEANView: View {
         ean: String,
         suggestedName: String?,
         suggestedImage: UIImage?,
+        categoryTags: [String],
         onCreated: @escaping (UUID, String?) -> Void
     ) {
         self.ean = ean
         self.suggestedName = suggestedName
         self.suggestedImage = suggestedImage
+        self.categoryTags = categoryTags
         self.onCreated = onCreated
         _nameOverride = State(initialValue: suggestedName ?? "")
     }
@@ -1172,10 +1179,22 @@ private struct ScanCreateEANView: View {
             async let locationRequest = LocationsRepository().fetchLocations()
             categories = try await categoryRequest
             locations = try await locationRequest
+            applyCategorySuggestionIfPossible()
         } catch {
             alertTitle = "Speichern fehlgeschlagen"
             alertMessage = AppError.message(for: error)
         }
+    }
+
+    private func applyCategorySuggestionIfPossible() {
+        guard selectedCategoryID == nil else { return }
+        guard let category = CategorySuggestionMapper().suggestedCategory(from: categoryTags, in: categories) else {
+            suggestedCategoryName = nil
+            return
+        }
+
+        selectedCategoryID = category.id
+        suggestedCategoryName = category.name
     }
 
     private func validateRequiredFields() -> Bool {
@@ -1206,7 +1225,8 @@ private struct ScanCreateEANView: View {
     private var openFoodFactsStatusCard: some View {
         let hasName = suggestedName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
         let hasImage = suggestedImage != nil
-        let found = hasName || hasImage
+        let hasCategory = suggestedCategoryName != nil
+        let found = hasName || hasImage || hasCategory
 
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 12) {
@@ -1243,6 +1263,12 @@ private struct ScanCreateEANView: View {
                     title: "Bild",
                     systemImage: hasImage ? "checkmark" : "xmark.circle.fill",
                     isActive: hasImage
+                )
+
+                openFoodFactsPill(
+                    title: "Kategorie",
+                    systemImage: hasCategory ? "checkmark" : "xmark.circle.fill",
+                    isActive: hasCategory
                 )
             }
         }

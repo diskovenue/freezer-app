@@ -8,9 +8,32 @@
 		<string>en</string>
 	</array>
 	<key>NSCameraUsageDescription</key>
-	<string>Die App benötigt Zugriff auf die Kamera, um Fotos für Gefriereinträge aufzunehmen.</string>
+	<string>Die App benötigt Zugriff auf die Kamera, um Barcodes zu scannen und Fotos für Gefriereinträge aufzunehmen.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Die App benötigt Zugriff auf deine Fotos, damit du Bilder für Gefriereinträge auswählen kannst.</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
+	<key>UIApplicationShortcutItems</key>
+	<array>
+		<dict>
+			<key>UIApplicationShortcutItemType</key>
+			<string>freezer-app.shortcut.scan</string>
+			<key>UIApplicationShortcutItemTitle</key>
+			<string>Scannen</string>
+			<key>UIApplicationShortcutItemIconSymbolName</key>
+			<string>barcode.viewfinder</string>
+		</dict>
+		<dict>
+			<key>UIApplicationShortcutItemType</key>
+			<string>freezer-app.shortcut.attention</string>
+			<key>UIApplicationShortcutItemTitle</key>
+			<string>Fällig</string>
+			<key>UIApplicationShortcutItemIconSymbolName</key>
+			<string>clock.fill</string>
+		</dict>
+	</array>
+	<key>UILaunchStoryboardName</key>
+	<string>LaunchScreen</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>remote-notification</string>

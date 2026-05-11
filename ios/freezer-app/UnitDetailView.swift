@@ -186,6 +186,9 @@ struct UnitDetailView: View {
                 }
 
                 detailCard("Details") {
+                    if let creatorDisplayName = vm.creatorDisplayName {
+                        detailRow(icon: "person", title: "Eingelegt von", value: creatorDisplayName)
+                    }
                     detailRow(icon: "calendar", title: "Eingelegt am", value: formatOptionalISODate(unit.frozen_at))
                     detailRow(icon: "hourglass", title: "MHD", value: formatOptionalISODate(unit.best_before))
                     detailRow(icon: quantityIcon(for: unit), title: "Menge", value: quantityLabel(for: unit))

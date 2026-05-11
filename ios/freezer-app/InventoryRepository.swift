@@ -155,6 +155,7 @@ struct InventoryRepository {
                 photo_path,
                 status,
                 consumed_at,
+                created_by,
                 attention_reason,
                 attention_since
             """)
@@ -314,8 +315,10 @@ struct InventoryRepository {
                 let consumed_at: String?
                 let attention_reason: String?
                 let attention_since: String?
+                let created_by: UUID?
             }
 
+            let session = try await client.auth.session
             _ = try await client
                 .from("freezer_units")
                 .update(
@@ -336,7 +339,8 @@ struct InventoryRepository {
                         status: "active",
                         consumed_at: nil,
                         attention_reason: nil,
-                        attention_since: nil
+                        attention_since: nil,
+                        created_by: session.user.id
                     )
                 )
                 .eq("id", value: reusingUnitID.uuidString)
@@ -358,8 +362,10 @@ struct InventoryRepository {
             let quantity_unit: String?
             let note: String?
             let status: String
+            let created_by: UUID
         }
 
+        let session = try await client.auth.session
         let rows: [InsertedIDRow] = try await client
             .from("freezer_units")
             .insert(
@@ -375,7 +381,8 @@ struct InventoryRepository {
                     quantity_value: quantityValue,
                     quantity_unit: quantityUnit,
                     note: note,
-                    status: "active"
+                    status: "active",
+                    created_by: session.user.id
                 )
             )
             .select("id")
@@ -445,8 +452,10 @@ struct InventoryRepository {
             let quantity_unit: String?
             let note: String?
             let status: String
+            let created_by: UUID
         }
 
+        let session = try await client.auth.session
         let rows: [InsertedIDRow] = try await client
             .from("freezer_units")
             .insert(
@@ -462,7 +471,8 @@ struct InventoryRepository {
                     quantity_value: quantityValue,
                     quantity_unit: quantityUnit,
                     note: note,
-                    status: "active"
+                    status: "active",
+                    created_by: session.user.id
                 )
             )
             .select("id")

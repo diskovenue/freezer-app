@@ -19,8 +19,10 @@ final class UnitDetailViewModel: ObservableObject {
     @Published var errorMessage: String?
     @Published var undoItem: UndoItem?
     @Published var photoImage: UIImage?
+    @Published var creatorDisplayName: String?
 
     private let repo = InventoryRepository()
+    private let profileRepo = ProfileRepository()
     private let unitId: UUID
     private let initialDisplayName: String?
 
@@ -44,6 +46,13 @@ final class UnitDetailViewModel: ObservableObject {
             async let displayUnitRequest = repo.fetchUnitDisplay(id: unitId)
             let loadedUnit = try await unitRequest
             let loadedDisplayUnit = try await displayUnitRequest
+            let loadedCreatorName: String?
+            if let creatorID = loadedUnit.created_by {
+                let profile = try? await profileRepo.fetchProfile(userId: creatorID)
+                loadedCreatorName = profile?.display_name?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+            } else {
+                loadedCreatorName = nil
+            }
 
             let loadedPhoto: UIImage?
             if let path = loadedUnit.photo_path, !path.isEmpty {
@@ -54,6 +63,7 @@ final class UnitDetailViewModel: ObservableObject {
 
             unit = loadedUnit
             displayUnit = loadedDisplayUnit
+            creatorDisplayName = loadedCreatorName
             photoImage = loadedPhoto
         } catch {
             errorMessage = AppError.message(for: error)

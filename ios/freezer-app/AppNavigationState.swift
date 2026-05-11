@@ -21,15 +21,27 @@ final class AppNavigationState: ObservableObject {
 
     @Published var selectedTab: AppTab = .inventory
     private var preferredLaunchTab: AppTab?
+    private var didSelectInitialTab = false
 
     private init() {}
 
+    func open(_ tab: AppTab) {
+        preferredLaunchTab = tab
+        selectedTab = tab
+    }
+
+    func openScanTab() {
+        open(.scan)
+    }
+
     func openAttentionTab() {
-        preferredLaunchTab = .attention
-        selectedTab = .attention
+        open(.attention)
     }
 
     func selectInitialTab() {
+        guard !didSelectInitialTab else { return }
+        didSelectInitialTab = true
+
         if let preferredLaunchTab {
             selectedTab = preferredLaunchTab
             self.preferredLaunchTab = nil

@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import Auth
 
 struct SettingsView: View {
     @EnvironmentObject var auth: AuthViewModel
@@ -14,9 +15,19 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
+                Section("Account") {
+                    NavigationLink("Profil") {
+                        ProfileSettingsView(email: auth.session?.user.email)
+                    }
+                }
+
                 Section("Daten") {
                     NavigationLink("Kategorien") {
                         CategorySettingsView()
+                    }
+
+                    NavigationLink("Orte") {
+                        LocationSettingsView()
                     }
                 }
 
@@ -31,6 +42,15 @@ struct SettingsView: View {
                 Section {
                     Button("Ausloggen") {
                         Task { await auth.signOut() }
+                    }
+                }
+
+                Section {
+                    HStack {
+                        Text("Version")
+                        Spacer()
+                        Text(appVersionText)
+                            .foregroundStyle(.secondary)
                     }
                 }
             }
@@ -54,5 +74,21 @@ struct SettingsView: View {
                 }
             }
         )
+    }
+
+    private var appVersionText: String {
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
+        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String
+
+        switch (version, build) {
+        case let (version?, build?):
+            return "\(version) (\(build))"
+        case let (version?, nil):
+            return version
+        case let (nil, build?):
+            return build
+        default:
+            return "-"
+        }
     }
 }

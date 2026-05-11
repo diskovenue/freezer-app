@@ -29,6 +29,7 @@ struct FreezerUnit: Decodable, Identifiable {
 
     let status: String
     let consumed_at: String?
+    let created_by: UUID?
 
     let attention_reason: String?
     let attention_since: String?
