@@ -1243,33 +1243,58 @@ private struct ScanCreateEANView: View {
                     Text(found ? "Produktdaten gefunden" : "Keine Produktdaten gefunden")
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.primary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.82)
 
                     Text(found
                          ? "Vorhandene Informationen wurden direkt in die Anlage übernommen."
                          : "Du kannst den Eintrag manuell anlegen. EAN bleibt bereits vorausgefüllt.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
 
-            HStack(spacing: 8) {
-                openFoodFactsPill(
-                    title: "Name",
-                    systemImage: hasName ? "checkmark" : "xmark.circle.fill",
-                    isActive: hasName
-                )
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) {
+                    openFoodFactsPill(
+                        title: "Name",
+                        systemImage: hasName ? "checkmark" : "xmark.circle.fill",
+                        isActive: hasName
+                    )
 
-                openFoodFactsPill(
-                    title: "Bild",
-                    systemImage: hasImage ? "checkmark" : "xmark.circle.fill",
-                    isActive: hasImage
-                )
+                    openFoodFactsPill(
+                        title: "Bild",
+                        systemImage: hasImage ? "checkmark" : "xmark.circle.fill",
+                        isActive: hasImage
+                    )
 
-                openFoodFactsPill(
-                    title: "Kategorie",
-                    systemImage: hasCategory ? "checkmark" : "xmark.circle.fill",
-                    isActive: hasCategory
-                )
+                    openFoodFactsPill(
+                        title: "Kategorie",
+                        systemImage: hasCategory ? "checkmark" : "xmark.circle.fill",
+                        isActive: hasCategory
+                    )
+                }
+
+                VStack(alignment: .leading, spacing: 8) {
+                    openFoodFactsPill(
+                        title: "Name",
+                        systemImage: hasName ? "checkmark" : "xmark.circle.fill",
+                        isActive: hasName
+                    )
+
+                    openFoodFactsPill(
+                        title: "Bild",
+                        systemImage: hasImage ? "checkmark" : "xmark.circle.fill",
+                        isActive: hasImage
+                    )
+
+                    openFoodFactsPill(
+                        title: "Kategorie",
+                        systemImage: hasCategory ? "checkmark" : "xmark.circle.fill",
+                        isActive: hasCategory
+                    )
+                }
             }
         }
         .padding(14)
@@ -1278,15 +1303,23 @@ private struct ScanCreateEANView: View {
     }
 
     private func openFoodFactsPill(title: String, systemImage: String, isActive: Bool) -> some View {
-        Label(title, systemImage: systemImage)
-            .font(.footnote.weight(.semibold))
-            .foregroundStyle(isActive ? Color.green : Color.secondary)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
-            .background(
-                (isActive ? Color.green : Color.secondary).opacity(isActive ? 0.12 : 0.10),
-                in: Capsule(style: .continuous)
-            )
+        HStack(spacing: 5) {
+            Image(systemName: systemImage)
+                .font(.caption.weight(.semibold))
+                .imageScale(.small)
+
+            Text(title)
+                .font(.footnote.weight(.semibold))
+                .lineLimit(1)
+        }
+        .foregroundStyle(isActive ? Color.green : Color.secondary)
+        .fixedSize(horizontal: true, vertical: false)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(
+            (isActive ? Color.green : Color.secondary).opacity(isActive ? 0.12 : 0.10),
+            in: Capsule(style: .continuous)
+        )
     }
 
     private var selectedCategoryName: String {
